@@ -135,6 +135,12 @@ Billing switches on when `STRIPE_SECRET_KEY` is set. Create one product with a m
 price in Stripe, put the price IDs in `STRIPE_PRICE_MONTHLY` and `STRIPE_PRICE_YEARLY`, and add a
 webhook endpoint at `<BASE_URL>/api/billing/webhook` for `checkout.session.completed` and
 `customer.subscription.*` (its signing secret goes in `STRIPE_WEBHOOK_SECRET`).
+[deploy/stripe-setup.sh](deploy/stripe-setup.sh) does all of that for the server setup in `deploy/`,
+including the customer portal settings. If Managed Payments (Stripe as merchant of record) is on for
+the account, the product needs an eligible tax code; the script sets the SaaS one.
+
+Set `ADMIN_LOGINS` to your own account **before** the Stripe key: once billing is on, an account on
+the free plan is trimmed to the free limits at its next sync.
 
 Default plans, all adjustable through the environment:
 
