@@ -501,13 +501,18 @@ function RepoDetail({ id }: { id: number }) {
             <Switch
               checked={d.shareEnabled}
               busy={busy}
-              disabled={!sharePages && !d.shareEnabled}
+              disabled={!d.canAdmin || ((!sharePages || d.private) && !d.shareEnabled)}
               onChange={(v) => void patch({ shareEnabled: v })}
               label={d.shareEnabled ? 'Public page on' : 'Public page off'}
             />
           }
         >
-          {!sharePages && !d.shareEnabled && (
+          {d.private ? (
+            <p className="note">Private repositories cannot be shared publicly.</p>
+          ) : !d.canAdmin ? (
+            <p className="note">Only admins of this repository can change sharing.</p>
+          ) : null}
+          {!sharePages && !d.shareEnabled && !d.private && d.canAdmin && (
             <p className="note">
               Public share pages are part of Pro. <Link to="/settings#plan">See plans</Link>
             </p>

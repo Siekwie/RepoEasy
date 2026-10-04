@@ -204,6 +204,13 @@ const migrations: string[] = [
   );
   CREATE INDEX events_user_time ON events(user_id, created_at);
   `,
+  `
+  CREATE INDEX repos_node_id ON repos(node_id);
+  CREATE INDEX users_stripe_customer ON users(stripe_customer_id);
+  CREATE INDEX sessions_user ON sessions(user_id);
+  CREATE INDEX events_repo ON events(repo_id);
+  CREATE INDEX api_tokens_user ON api_tokens(user_id);
+  `,
 ];
 
 export function openDb(path: string): DB {

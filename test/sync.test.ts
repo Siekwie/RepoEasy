@@ -178,7 +178,7 @@ describe('events', () => {
     const t = setup([repo]);
     await t.sync();
     t.db.prepare('UPDATE metrics_daily SET day = ?').run(d(1));
-    t.db.prepare('UPDATE users SET settings_json = ? WHERE id = ?').run(JSON.stringify({ webhookUrl: 'https://hooks.example.test/in' }), t.userId);
+    t.db.prepare('UPDATE users SET settings_json = ? WHERE id = ?').run(JSON.stringify({ webhookUrl: 'https://93.184.216.34/in' }), t.userId);
 
     repo.stars = 104;
     await t.sync();

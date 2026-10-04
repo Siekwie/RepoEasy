@@ -112,6 +112,8 @@ export interface RepoSummary {
   relation: RepoRelation;
   /** True when traffic data is collectable (push access). False for followed repos. */
   canPush: boolean;
+  /** Admin access: required to turn public sharing on (public repositories only). */
+  canAdmin: boolean;
   /** Traffic archiving is on for this repo. */
   tracked: boolean;
   pinned: boolean;
@@ -358,7 +360,8 @@ export interface ApiError {
 }
 
 /*
-Endpoint list (all JSON unless noted; auth = session cookie or `Authorization: Bearer re_…`):
+Endpoint list (all JSON unless noted; auth = session cookie, or `Authorization: Bearer re_…`
+for the GET endpoints: API tokens are read-only):
 
   GET    /api/info                         → AppInfo                 (no auth)
   GET    /api/me                           → Me                      (401 when signed out)

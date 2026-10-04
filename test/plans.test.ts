@@ -44,14 +44,21 @@ describe('plans', () => {
     expect((await t.api('POST', '/api/repos/follow', { fullName: 'vendor/pub10' })).data.code).toBe('plan-limit');
 
     // checkout completes, then Stripe confirms the subscription
-    applyStripeEvent(t.db, { type: 'checkout.session.completed', data: { object: { client_reference_id: String(t.userId), customer: 'cus_1', subscription: 'sub_1' } } });
+    applyStripeEvent(t.db, { type: 'checkout.session.completed', data: { object: { client_reference_id: `${t.userId}:1`, customer: 'cus_1', subscription: 'sub_1', mode: 'subscription', payment_status: 'paid' } } });
     applyStripeEvent(t.db, subscription('customer.subscription.updated', 'active'));
     me = (await t.api('GET', '/api/me')).data;
     expect(me.plan).toBe('pro');
     expect(me.billing.hasSubscription).toBe(true);
     expect((await t.api('PATCH', `/api/repos/${untracked.id}`, { tracked: true })).data.tracked).toBe(true);
     expect((await t.api('POST', '/api/repos/follow', { fullName: 'vendor/pub10' })).status).toBe(201);
-    expect((await t.api('POST', '/api/tokens', { name: 'x' })).status).toBe(201);
+    const token = (await t.api('POST', '/api/tokens', { name: 'x' })).data.token;
+    expect((await t.app.request('/api/me', { headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
+    expect((await t.api('PATCH', '/api/repos/1', { shareEnabled: true })).data.shareEnabled).toBe(true);
+    // a second checkout is refused while a subscription exists
+    expect((await t.api('POST', '/api/billing/checkout', { interval: 'month' })).status).toBe(400);
+    // an event about a different, stale subscription changes nothing
+    applyStripeEvent(t.db, { type: 'customer.subscription.deleted', data: { object: { id: 'sub_old', customer: 'cus_1', status: 'canceled' } } });
+    expect((await t.api('GET', '/api/me')).data.plan).toBe('pro');
 
     // cancelling drops back to free and trims tracking to the limit, keeping pinned repos
     await t.api('PATCH', `/api/repos/${untracked.id}`, { pinned: true });
@@ -63,6 +70,32 @@ describe('plans', () => {
     expect(list.find((r: any) => r.id === untracked.id).tracked).toBe(true);
     // nothing is deleted on downgrade
     expect(list.filter((r: any) => r.relation === 'followed')).toHaveLength(11);
+    // Pro-only features stop: the API token no longer works and the share page is gone
+    expect((await t.app.request('/api/me', { headers: { authorization: `Bearer ${token}` } })).status).toBe(402);
+    expect((await t.app.request('/api/public/alice/repo1')).status).toBe(404);
+  });
+
+  it('ignores checkouts that are unpaid or reference an account that no longer matches', async () => {
+    const t = setup(repos());
+    const checkout = (object: Record<string, unknown>) =>
+      applyStripeEvent(t.db, { type: 'checkout.session.completed', data: { object: { customer: 'cus_9', subscription: 'sub_9', mode: 'subscription', payment_status: 'paid', ...object } } });
+    const plan = async () => (await t.api('GET', '/api/me')).data.plan;
+
+    checkout({ client_reference_id: `${t.userId}:1`, payment_status: 'unpaid' });
+    expect(await plan()).toBe('free');
+    checkout({ client_reference_id: `${t.userId}:999` }); // row id reused by a different GitHub account
+    expect(await plan()).toBe('free');
+    checkout({ client_reference_id: String(t.userId) });
+    expect(await plan()).toBe('free');
+    checkout({ client_reference_id: `${t.userId}:1` });
+    expect(await plan()).toBe('pro');
+  });
+
+  it('cancels the subscription when the account is deleted', async () => {
+    const t = setup(repos());
+    applyStripeEvent(t.db, { type: 'checkout.session.completed', data: { object: { client_reference_id: `${t.userId}:1`, customer: 'cus_1', subscription: 'sub_1', mode: 'subscription', payment_status: 'paid' } } });
+    expect((await t.api('DELETE', '/api/me')).status).toBe(200);
+    expect(t.state.calls).toContain('DELETE /v1/subscriptions/sub_1');
   });
 
   it('rejects unsigned webhooks', async () => {

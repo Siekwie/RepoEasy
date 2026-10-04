@@ -46,16 +46,37 @@ export function saveTokens(db: DB, userId: number, tokens: TokenSet): void {
   ).run(encrypt(tokens.accessToken), tokens.refreshToken ? encrypt(tokens.refreshToken) : null, tokens.expiresAt, userId);
 }
 
+// Refresh tokens are single-use, so concurrent callers must share one refresh.
+const refreshing = new Map<number, Promise<string>>();
+
+function readable(blob: string): string {
+  try {
+    return decrypt(blob);
+  } catch {
+    // APP_SECRET changed or the value is damaged: only a new sign-in fixes that
+    throw new GitHubError('The stored GitHub token can no longer be read. Sign in again.', 401);
+  }
+}
+
 /** The user's GitHub token, refreshed first when it is an expiring GitHub App token. */
-export async function accessToken(db: DB, user: UserRow, fetchFn: typeof fetch = fetch): Promise<string> {
+export async function accessToken(db: DB, userRow: UserRow, fetchFn: typeof fetch = fetch): Promise<string> {
+  const pending = refreshing.get(userRow.id);
+  if (pending) return pending;
+  // re-read: another request may have refreshed since the caller loaded the row
+  const user = (db.prepare('SELECT * FROM users WHERE id = ?').get(userRow.id) as UserRow | undefined) ?? userRow;
   if (!user.token_enc) throw new GitHubError('No GitHub token on file. Sign in again.', 401);
   const expiring = user.token_expires_at && Date.parse(user.token_expires_at) - Date.now() < 5 * 60_000;
   if (expiring && user.refresh_token_enc) {
-    const tokens = await tokenRequest({ grant_type: 'refresh_token', refresh_token: decrypt(user.refresh_token_enc) }, fetchFn);
-    saveTokens(db, user.id, tokens);
-    return tokens.accessToken;
+    const refresh = tokenRequest({ grant_type: 'refresh_token', refresh_token: readable(user.refresh_token_enc) }, fetchFn)
+      .then((tokens) => {
+        saveTokens(db, user.id, tokens);
+        return tokens.accessToken;
+      })
+      .finally(() => refreshing.delete(user.id));
+    refreshing.set(user.id, refresh);
+    return refresh;
   }
-  return decrypt(user.token_enc);
+  return readable(user.token_enc);
 }
 
 /** Creates or updates the account for a GitHub identity and stores its token. */

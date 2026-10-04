@@ -5,7 +5,7 @@ import { badgeSvg, compact } from '../src/server/badges.ts';
 import { verifyStripeSignature } from '../src/server/billing.ts';
 import { decrypt, encrypt } from '../src/server/crypto.ts';
 import { addDays, dayOf, openDb } from '../src/server/db.ts';
-import { crossedMilestone } from '../src/server/events.ts';
+import { crossedMilestone, isPublicAddress } from '../src/server/events.ts';
 import { csv } from '../src/server/http.ts';
 
 describe('crypto', () => {
@@ -59,6 +59,19 @@ describe('helpers', () => {
     const db = openDb(':memory:');
     expect(db.pragma('user_version', { simple: true })).toBeGreaterThan(0);
     expect(() => db.prepare('SELECT * FROM traffic_daily').all()).not.toThrow();
+  });
+});
+
+describe('webhook targets', () => {
+  it('accepts only public unicast addresses', () => {
+    for (const ip of ['93.184.216.34', '8.8.8.8', '2606:4700:4700::1111']) expect(isPublicAddress(ip), ip).toBe(true);
+    for (const ip of [
+      '127.0.0.1', '10.1.2.3', '172.20.0.1', '192.168.1.1', '169.254.169.254', '100.64.0.1', '0.0.0.0', '198.18.0.1', '192.0.0.1', '224.0.0.1',
+      '::1', '::', '::ffff:127.0.0.1', '::ffff:7f00:1', '::127.0.0.1', '64:ff9b::7f00:1', 'fd00::1', 'fe80::1', 'fec0::1', 'ff02::1',
+      'not-an-ip', '',
+    ]) {
+      expect(isPublicAddress(ip), ip).toBe(false);
+    }
   });
 });
 

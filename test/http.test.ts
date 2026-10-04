@@ -56,6 +56,20 @@ describe('auth', () => {
     });
   });
 
+  it('refuses requests addressed to an unknown hostname (DNS rebinding)', async () => {
+    const t = setup([own]);
+    const res = await t.app.request('http://attacker.example/api/me', { headers: { cookie: 'x=y' } });
+    expect(res.status).toBe(403);
+    expect((await t.app.request('http://attacker.example/auth/local', { method: 'POST' })).status).toBe(403);
+    expect((await t.app.request('http://127.0.0.1:8787/api/info')).status).toBe(200);
+  });
+
+  it('limits request bodies', async () => {
+    const t = setup([own]);
+    const res = await t.api('PATCH', '/api/repos/1', { note: 'x'.repeat(100_000) });
+    expect(res.status).toBe(400);
+  });
+
   it('blocks cross-site writes', async () => {
     const t = setup([own]);
     const res = await t.api('POST', '/auth/logout', undefined, { origin: 'https://evil.example' });
@@ -74,6 +88,11 @@ describe('auth', () => {
     expect(listed.data[0]).not.toHaveProperty('token');
     expect(listed.data[0].lastUsedAt).not.toBeNull();
     expect((await t.app.request('/api/me', { headers: { authorization: 'Bearer re_wrong' } })).status).toBe(401);
+
+    // tokens read; they cannot change or delete anything
+    const write = await t.app.request('/api/me', { method: 'DELETE', headers: { authorization: `Bearer ${created.data.token}` } });
+    expect(write.status).toBe(403);
+    expect((t.db.prepare('SELECT COUNT(*) n FROM users').get() as { n: number }).n).toBe(1);
   });
 
   it('keeps the demo account read-only', async () => {
@@ -162,12 +181,60 @@ describe('sharing', () => {
     expect((await t.app.request('/badge/alice/lib/views.svg')).status).toBe(404);
 
     expect((await t.api('PATCH', '/api/repos/1', { shareEnabled: true })).data.shareEnabled).toBe(true);
+    expect((await t.api('GET', '/api/repos/1')).data.canAdmin).toBe(true);
     const stats = await (await t.app.request('/api/public/ALICE/lib')).json();
     expect(stats).toMatchObject({ fullName: 'alice/lib', lifetime: { views: 9 } });
     const badge = await t.app.request('/badge/alice/lib/views.svg');
     expect(badge.headers.get('content-type')).toContain('image/svg+xml');
     expect(await badge.text()).toContain('>9<');
     expect((await t.app.request('/badge/alice/lib/bogus.svg')).status).toBe(404);
+  });
+});
+
+describe('private repositories', () => {
+  it('are never shared, and stop being shared or followed once they turn private', async () => {
+    const secret = { id: 30, owner: 'alice', name: 'secret', private: true, views: [[addDays(today, -1), 4, 2]] as Array<[string, number, number]> };
+    const open = { id: 31, owner: 'alice', name: 'open', private: false };
+    const t = setup([secret, open]);
+    await t.sync();
+    const ids = Object.fromEntries((await t.api('GET', '/api/repos')).data.map((r: any) => [r.name, r.id]));
+
+    expect((await t.api('PATCH', `/api/repos/${ids.secret}`, { shareEnabled: true })).status).toBe(400);
+    expect((await t.app.request('/api/public/alice/secret')).status).toBe(404);
+
+    // someone else follows the public repo, and its owner shares it
+    const bob = t.db.prepare(`INSERT INTO users (github_id, login, created_at) VALUES (2, 'bob', ?) RETURNING id`).get(new Date().toISOString()) as { id: number };
+    t.db.prepare(`INSERT INTO user_repos (user_id, repo_id, relation, added_at) VALUES (?, ?, 'followed', ?)`).run(bob.id, ids.open, new Date().toISOString());
+    const bobCookie = sessionCookie(t.db, bob.id);
+    await t.api('PATCH', `/api/repos/${ids.open}`, { shareEnabled: true });
+    expect((await t.app.request('/api/public/alice/open')).status).toBe(200);
+    expect((await t.app.request(`/api/repos/${ids.open}`, { headers: { cookie: bobCookie } })).status).toBe(200);
+
+    // the owner makes it private: the next sync takes it away from the follower and from the public
+    open.private = true;
+    t.age();
+    await t.sync();
+    expect((await t.app.request(`/api/repos/${ids.open}`, { headers: { cookie: bobCookie } })).status).toBe(404);
+    expect((await t.app.request(`/api/repos/${ids.open}/commits`, { headers: { cookie: bobCookie } })).status).toBe(404);
+    expect((await t.app.request('/api/public/alice/open')).status).toBe(404);
+    expect((await t.app.request('/badge/alice/open/views.svg')).status).toBe(404);
+    expect((await t.api('GET', `/api/repos/${ids.open}`)).data.shareEnabled).toBe(false);
+  });
+
+  it('are hidden from an account whose GitHub access was revoked, and come back after signing in again', async () => {
+    const secret = { id: 30, owner: 'alice', name: 'secret', private: true };
+    const open = { id: 31, owner: 'alice', name: 'open' };
+    const t = setup([secret, open]);
+    await t.sync();
+    expect((await t.api('GET', '/api/repos')).data).toHaveLength(2);
+
+    t.state.failWith = { status: 401, message: 'Bad credentials' };
+    await t.sync();
+    expect((await t.api('GET', '/api/repos')).data.map((r: any) => r.name)).toEqual(['open']);
+
+    t.state.failWith = undefined;
+    await t.sync();
+    expect((await t.api('GET', '/api/repos')).data).toHaveLength(2);
   });
 });
 
@@ -185,7 +252,7 @@ describe('account', () => {
   it('validates webhook settings', async () => {
     const t = setup([own]);
     expect((await t.api('PATCH', '/api/me/settings', { webhookUrl: 'ftp://x' })).status).toBe(400);
-    const ok = await t.api('PATCH', '/api/me/settings', { webhookUrl: 'https://hooks.example.test/a', notifySpikes: false });
-    expect(ok.data.settings).toMatchObject({ webhookUrl: 'https://hooks.example.test/a', notifySpikes: false, notifyMilestones: true });
+    const ok = await t.api('PATCH', '/api/me/settings', { webhookUrl: 'https://93.184.216.34/a', notifySpikes: false });
+    expect(ok.data.settings).toMatchObject({ webhookUrl: 'https://93.184.216.34/a', notifySpikes: false, notifyMilestones: true });
   });
 });

@@ -1,5 +1,6 @@
 import type { BadgeMetric } from '../shared/api.ts';
-import type { DB, RepoRow } from './db.ts';
+import type { DB } from './db.ts';
+import { sharedRepo } from './queries.ts';
 
 export const BADGE_METRICS: BadgeMetric[] = ['views', 'visitors', 'clones', 'stars', 'downloads'];
 
@@ -51,9 +52,7 @@ export function badgeSvg(label: string, value: string, color = '#2f6feb'): strin
 
 /** Badge for a shared repo, or null when the repo is unknown or sharing is off. */
 export function repoBadge(db: DB, owner: string, name: string, metric: BadgeMetric): string | null {
-  const repo = db
-    .prepare('SELECT * FROM repos WHERE full_name = ? AND share_enabled = 1')
-    .get(`${owner}/${name}`) as RepoRow | undefined;
+  const repo = sharedRepo(db, owner, name);
   if (!repo) return null;
   let value: number;
   if (metric === 'stars') value = repo.stars;

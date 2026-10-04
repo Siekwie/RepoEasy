@@ -78,6 +78,7 @@ export function fakeGitHub(state: FakeState): typeof fetch {
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
     state.calls.push(`${method} ${url.pathname}`);
+    if (url.hostname === 'api.stripe.com') return json({ id: 'sub_1', status: 'canceled' });
     if (state.failWith) return json({ message: state.failWith.message }, state.failWith.status, state.failWith.headers);
 
     if (url.pathname === '/login/oauth/access_token') {

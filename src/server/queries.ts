@@ -203,6 +203,24 @@ function popular<T extends { count: number; uniques: number }>(
 
 export const referrers = (db: DB, set: RepoSet, range: '14d' | 'all', limit = 50) =>
   popular<ReferrerRow>(db, 'referrers_snap', 'referrer', set, range, limit);
+/**
+ * Referrers summed over several repos. Each repo is tiled on its own snapshot
+ * days: repos are not all synced on the same days.
+ */
+export function referrersAcross(db: DB, set: RepoSet, range: '14d' | 'all', limit: number): ReferrerRow[] {
+  const ids = db.prepare(`SELECT DISTINCT repo_id FROM referrers_snap WHERE repo_id IN ${set.sql}`).all(...set.params) as Array<{ repo_id: number }>;
+  const merged = new Map<string, ReferrerRow>();
+  for (const { repo_id } of ids) {
+    for (const row of referrers(db, oneRepo(repo_id), range, 1000).rows) {
+      const entry = merged.get(row.referrer) ?? { referrer: row.referrer, count: 0, uniques: 0 };
+      entry.count += row.count;
+      entry.uniques += row.uniques;
+      merged.set(row.referrer, entry);
+    }
+  }
+  return [...merged.values()].sort((a, b) => b.count - a.count).slice(0, limit);
+}
+
 export const paths = (db: DB, set: RepoSet, range: '14d' | 'all', limit = 50) =>
   popular<PathRow>(db, 'paths_snap', 'path, title', set, range, limit);
 
@@ -309,6 +327,7 @@ export function repoSummaries(db: DB, userId: number, onlyRepoId?: number): Repo
       license: r.license,
       relation: r.relation as RepoRelation,
       canPush: Boolean(r.can_push),
+      canAdmin: Boolean(r.can_admin) && r.relation !== 'followed',
       tracked: Boolean(r.tracked),
       pinned: Boolean(r.pinned),
       hidden: Boolean(r.hidden),
@@ -496,7 +515,7 @@ export function overview(db: DB, userId: number, range: Range): Overview {
     starSeries: inRange,
     topByViews: top('views', 'uniques'),
     topByClones: top('clones', 'cloneUniques'),
-    topReferrers: referrers(db, visible, range === '14d' ? '14d' : 'all', 10).rows,
+    topReferrers: referrersAcross(db, visible, range === '14d' ? '14d' : 'all', 10),
     commitCalendar: Array.from({ length: 371 }, (_, i) => {
       const day = addDays(calendarStart, i);
       return { day, commits: commitDays.get(day) ?? 0 };
@@ -548,11 +567,24 @@ export function me(db: DB, user: UserRow): Me {
   };
 }
 
-/** Stats for the public share page; null unless a maintainer turned sharing on. */
-export function publicStats(db: DB, owner: string, name: string): PublicRepoStats | null {
-  const repo = db
-    .prepare('SELECT * FROM repos WHERE full_name = ? AND share_enabled = 1')
+/**
+ * A repo that may be shown publicly: public on GitHub, sharing switched on, and
+ * still administered by someone on this instance (so it can be switched off again).
+ */
+export function sharedRepo(db: DB, owner: string, name: string): RepoRow | undefined {
+  return db
+    .prepare(
+      `SELECT r.* FROM repos r
+       WHERE r.full_name = ? AND r.share_enabled = 1 AND r.private = 0
+         AND EXISTS (SELECT 1 FROM user_repos ur WHERE ur.repo_id = r.id AND ur.can_admin = 1 AND ur.gone = 0)
+       ORDER BY r.meta_synced_at DESC LIMIT 1`,
+    )
     .get(`${owner}/${name}`) as RepoRow | undefined;
+}
+
+/** Stats for the public share page; null unless sharing is on. */
+export function publicStats(db: DB, owner: string, name: string): PublicRepoStats | null {
+  const repo = sharedRepo(db, owner, name);
   if (!repo) return null;
   const set = oneRepo(repo.id);
   return {

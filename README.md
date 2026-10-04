@@ -24,9 +24,9 @@ Stripe billing.
 - **Manage.** Tags, private notes, pin and hide, a health checklist per repo (description, README,
   license, topics, stale, failing CI), CI status at a glance, and editing description, homepage and
   topics on GitHub from the same page.
-- **Share.** Opt-in public stats page and README badges per repo (lifetime views, visitors, clones,
-  stars, downloads).
-- **Your data.** CSV export per repo, full JSON export, a JSON API with personal tokens, webhook
+- **Share.** Opt-in public stats page and README badges for public repos (lifetime views, visitors,
+  clones, stars, downloads). Private repositories can never be shared.
+- **Your data.** CSV export per repo, full JSON export, a read-only JSON API with personal tokens, webhook
   alerts for Discord, Slack or anything that takes a POST, and account deletion that removes the data.
 
 ## Run it for yourself
@@ -55,8 +55,10 @@ npm start
 Open http://localhost:8787 and sign in. The first sync starts immediately and repeats every 6 hours.
 Keep the process running (or start it at least once every two weeks) and no traffic day is lost.
 
-The server listens on 127.0.0.1 only. To reach it from other machines set `HOST=0.0.0.0` and an
-`APP_PASSWORD`.
+The server listens on 127.0.0.1 only. To reach it from other machines set `HOST=0.0.0.0`, set
+`BASE_URL` to the address you open it at, and set an `APP_PASSWORD`: without a password, sign-in is
+refused as soon as the server is reachable from elsewhere. Requests for any other hostname than the
+one in `BASE_URL` are rejected.
 
 ### Docker
 
@@ -84,7 +86,10 @@ read*, *Metadata: read* and *Contents: read* (add *Administration: write* only i
 form to work), use its client ID and secret in the same two variables, and set `GITHUB_APP_SLUG` so
 the UI can send users to pick repositories.
 
-GitHub tokens are stored encrypted (AES-256-GCM) with `APP_SECRET`.
+GitHub tokens are stored encrypted (AES-256-GCM) with `APP_SECRET`. Set it yourself on a hosted
+instance and keep it out of the data directory's backups; if it is left unset, a key is generated
+next to the database, which protects against a leaked database file but not a leaked folder.
+Once GitHub sign-in is configured, `GITHUB_TOKEN` is ignored.
 
 ## Hosting it as a service
 
@@ -104,8 +109,8 @@ Default plans, all adjustable through the environment:
 | CSV / JSON export | yes | yes |
 | API tokens, webhook alerts, share pages and badges | no | yes |
 
-Without billing every account has everything. `ADMIN_LOGINS` unlocks everything for named accounts
-on a hosted instance. `DEMO=1` adds a read-only demo account with sample data to the sign-in page.
+Without billing every account has everything. `ADMIN_LOGINS` (GitHub logins or, better, numeric
+user ids) unlocks everything for those accounts on a hosted instance. `DEMO=1` adds a read-only demo account with sample data to the sign-in page.
 
 Cost: a sync is about one GraphQL call per 15 repositories plus four to six REST calls per tracked
 repository, all made with the user's own GitHub token and rate limit, one account at a time. The
@@ -114,8 +119,9 @@ only copy of the archived history.
 
 ## API
 
-Every endpoint the web app uses is available with `Authorization: Bearer re_...` (create tokens under
-Settings). The full list with types is in [src/shared/api.ts](src/shared/api.ts).
+Every read endpoint the web app uses is available with `Authorization: Bearer re_...` (create tokens
+under Settings). Tokens are read-only: they cannot change settings, edit repositories or delete
+anything. The full list with types is in [src/shared/api.ts](src/shared/api.ts).
 
 ```bash
 curl -H "Authorization: Bearer re_..." https://stats.example.com/api/repos
@@ -148,3 +154,15 @@ Setting `DEMO=1` and `SYNC_DISABLED=1` in `.env` gives a server with sample data
   snapshots.
 - A repository that disappears from your account is hidden, not deleted. Its history comes back if
   the repository does.
+- If GitHub access is revoked, private repositories are hidden from that account until it signs in
+  again. A followed repository that turns private is dropped from its followers.
+
+## Known limits
+
+- The overview adds up every daily snapshot of every repository on each load. That is instant for a
+  few hundred repositories and a few years of history; very large organisations would want a
+  pre-aggregated table.
+- Accounts are synced one after another. One account with thousands of tracked repositories delays
+  the others.
+- The Dockerfile and the GitHub App sign-in path are written from the documentation and have not been
+  run end to end yet; the OAuth App path and the single-user token path have.

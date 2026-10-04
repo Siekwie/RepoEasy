@@ -1,5 +1,8 @@
+import { lookup as lookupCallback } from 'node:dns';
 import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import http from 'node:http';
+import https from 'node:https';
+import { BlockList, isIP, type LookupFunction } from 'node:net';
 import type { EventKind } from '../shared/api.ts';
 import { config, effectivePlan, planLimits } from './config.ts';
 import { addDays, dayOf, nowIso, type DB, type UserRow } from './db.ts';
@@ -145,19 +148,33 @@ export function detectEvents(db: DB, userId: number): void {
   })();
 }
 
-function isPrivateAddress(ip: string): boolean {
-  if (isIP(ip) === 4) {
-    const [a, b] = ip.split('.').map(Number) as [number, number];
-    return a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127);
-  }
-  const v6 = ip.toLowerCase();
-  if (v6.startsWith('::ffff:')) return isPrivateAddress(v6.slice(7));
-  return v6 === '::1' || v6 === '::' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe80');
+// Everything that is not a plain public unicast address: loopback, private, link-local,
+// CGNAT, benchmarking, multicast, reserved, and IPv6 forms that embed an IPv4 address.
+// Two lists: BlockList matches IPv4 addresses against IPv4-mapped IPv6 rules, which would block all of IPv4.
+const nonPublicV4 = new BlockList();
+const nonPublicV6 = new BlockList();
+for (const [net, bits] of [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12],
+  ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4],
+] as Array<[string, number]>) {
+  nonPublicV4.addSubnet(net, bits, 'ipv4');
+}
+for (const [net, bits] of [
+  ['::', 96], ['::ffff:0:0', 96], ['64:ff9b::', 96], ['fc00::', 7], ['fe80::', 10], ['fec0::', 10], ['ff00::', 8],
+] as Array<[string, number]>) {
+  nonPublicV6.addSubnet(net, bits, 'ipv6');
+}
+
+export function isPublicAddress(ip: string): boolean {
+  const family = isIP(ip);
+  if (family === 4) return !nonPublicV4.check(ip, 'ipv4');
+  return family === 6 && !nonPublicV6.check(ip, 'ipv6');
 }
 
 /**
- * Checks a user-supplied webhook URL. On a hosted instance the target must be
- * public https so the server cannot be pointed at its own network.
+ * Checks a user-supplied webhook URL. Where several people have accounts the
+ * target must be public https, so the server cannot be pointed at its own
+ * network. A single-user instance may post to anything, e.g. a service on the LAN.
  */
 export async function checkWebhookUrl(raw: string): Promise<string | null> {
   let url: URL;
@@ -166,17 +183,56 @@ export async function checkWebhookUrl(raw: string): Promise<string | null> {
   } catch {
     return 'Not a valid URL.';
   }
-  if (!config.billing.enabled) {
+  if (!config.multiUser) {
     return url.protocol === 'https:' || url.protocol === 'http:' ? null : 'Webhook URL must be http(s).';
   }
   if (url.protocol !== 'https:') return 'Webhook URL must use https.';
+  const host = url.hostname.replace(/^\[|\]$/g, '');
   try {
-    const addresses = isIP(url.hostname) ? [{ address: url.hostname }] : await lookup(url.hostname, { all: true });
-    if (addresses.some((a) => isPrivateAddress(a.address))) return 'Webhook URL must point to a public host.';
+    const addresses = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
+    if (!addresses.length || addresses.some((a) => !isPublicAddress(a.address))) return 'Webhook URL must point to a public host.';
   } catch {
     return 'Webhook host could not be resolved.';
   }
   return null;
+}
+
+/**
+ * DNS lookup for the webhook connection itself. The address is vetted at the
+ * moment the socket connects, so a hostname cannot pass the check above and
+ * then resolve somewhere private.
+ */
+const publicOnlyLookup: LookupFunction = (hostname, options, callback) => {
+  lookupCallback(hostname, options, (err, address, family) => {
+    const addresses = Array.isArray(address) ? address.map((a) => a.address) : [address as string];
+    if (!err && addresses.some((a) => !isPublicAddress(a))) {
+      return callback(new Error('Webhook host resolves to a non-public address'), address as never, family);
+    }
+    callback(err, address as never, family);
+  });
+};
+
+/** POSTs JSON without following redirects. */
+function postJson(target: string, payload: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(target);
+    const request = (url.protocol === 'https:' ? https : http).request(
+      url,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload), 'User-Agent': 'RepoEasy' },
+        timeout: 10_000,
+        lookup: config.multiUser ? publicOnlyLookup : undefined,
+      },
+      (res) => {
+        res.resume();
+        resolve();
+      },
+    );
+    request.on('timeout', () => request.destroy(new Error('timed out')));
+    request.on('error', reject);
+    request.end(payload);
+  });
 }
 
 const NOTIFY: Partial<Record<EventKind, 'notifyMilestones' | 'notifySpikes' | 'notifyReleases'>> = {
@@ -188,7 +244,7 @@ const NOTIFY: Partial<Record<EventKind, 'notifyMilestones' | 'notifySpikes' | 'n
 };
 
 /** Posts the events recorded after event `afterId` to the user's webhook, if they have one. */
-export async function deliverEvents(db: DB, user: UserRow, afterId: number, fetchFn: typeof fetch = fetch): Promise<void> {
+export async function deliverEvents(db: DB, user: UserRow, afterId: number, fetchFn?: typeof fetch): Promise<void> {
   const settings = userSettings(user);
   if (!settings.webhookUrl || !planLimits(effectivePlan(user)).webhooks) return;
   const events = (
@@ -210,13 +266,12 @@ export async function deliverEvents(db: DB, user: UserRow, afterId: number, fetc
       ? { text }
       : { text, events };
   try {
-    await fetchFn(settings.webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'User-Agent': 'RepoEasy' },
-      body: JSON.stringify(body),
-      redirect: 'error',
-      signal: AbortSignal.timeout(10_000),
-    });
+    if (fetchFn) {
+      // tests inject a fetch; production goes through the address-vetting sender
+      await fetchFn(settings.webhookUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    } else {
+      await postJson(settings.webhookUrl, JSON.stringify(body));
+    }
   } catch (err) {
     console.warn(`[webhook] delivery for user ${user.id} failed: ${err instanceof Error ? err.message : err}`);
   }

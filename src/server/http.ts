@@ -2,7 +2,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { ApiError } from '../shared/api.ts';
-import { config } from './config.ts';
+import { config, effectivePlan, planLimits } from './config.ts';
 import { randomToken, sha256 } from './crypto.ts';
 import { nowIso, type DB, type UserRow } from './db.ts';
 
@@ -41,9 +41,9 @@ const SESSION_COOKIE = 're_session';
 const SESSION_DAYS = 60;
 const secure = config.baseUrl.startsWith('https://');
 
-export function createSession(c: Ctx, db: DB, userId: number): void {
+export function createSession(c: Ctx, db: DB, userId: number, days = SESSION_DAYS): void {
   const token = randomToken();
-  const expires = new Date(Date.now() + SESSION_DAYS * 86_400_000);
+  const expires = new Date(Date.now() + days * 86_400_000);
   db.prepare('INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)').run(
     sha256(token),
     userId,
@@ -83,8 +83,14 @@ export const requireUser =
   async (c, next) => {
     const auth = currentUser(c, db);
     if (!auth) return fail('unauthorized', 'Sign in to continue.');
-    if (auth.user.is_demo && !['GET', 'HEAD'].includes(c.req.method)) {
+    const readOnly = ['GET', 'HEAD'].includes(c.req.method);
+    if (auth.user.is_demo && !readOnly) {
       return fail('demo-readonly', 'The demo account is read-only. Sign in with GitHub to track your own repositories.');
+    }
+    if (auth.viaToken) {
+      // API tokens read data; changing things takes a signed-in browser session
+      if (!readOnly) return fail('forbidden', 'API tokens are read-only.');
+      if (!planLimits(effectivePlan(auth.user)).apiTokens) return fail('plan-limit', 'API access is part of the Pro plan.');
     }
     c.set('user', auth.user);
     c.set('viaToken', auth.viaToken);
@@ -114,6 +120,24 @@ export const sameOrigin: MiddlewareHandler<Env> = async (c, next) => {
   }
   await next();
 };
+
+/**
+ * Refuses API and auth requests addressed to a hostname this server is not
+ * configured for. A DNS-rebinding page reaches a local server under its own
+ * hostname, so it fails here before it can sign in or read anything.
+ */
+export const trustedHost: MiddlewareHandler<Env> = async (c, next) => {
+  if (!config.allowedHosts.includes(new URL(c.req.url).hostname)) {
+    return fail('forbidden', 'This server is not configured for that hostname. Set BASE_URL to the address you use to reach it.');
+  }
+  await next();
+};
+
+/** Network address of the caller, for rate limiting. */
+export function clientAddress(c: Ctx): string {
+  const incoming = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming;
+  return incoming?.socket?.remoteAddress ?? 'unknown';
+}
 
 export async function body<T extends object>(c: Ctx): Promise<Partial<T>> {
   try {

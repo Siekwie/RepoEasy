@@ -54,6 +54,11 @@ export function syncUser(db: DB, userId: number, deps: SyncDeps = {}): Promise<v
         revoked ? 1 : 0,
         userId,
       );
+      if (revoked) {
+        // Without a working token we can no longer tell what this account may see.
+        // Private repos are hidden until a new sign-in rediscovers them; nothing is deleted.
+        db.prepare('UPDATE user_repos SET gone = 1 WHERE user_id = ? AND repo_id IN (SELECT id FROM repos WHERE private = 1)').run(userId);
+      }
       console.error(`[sync] user ${userId} failed: ${message}`);
     })
     .finally(() => running.delete(userId));
@@ -120,6 +125,13 @@ export function upsertRepo(db: DB, r: GqlRepo): number {
     meta_synced_at: now,
   }) as { id: number };
 
+  if (r.isPrivate) {
+    // Only public repos can be followed. Once a repo turns private its followers lose it,
+    // and it can no longer be shared publicly.
+    db.prepare(`DELETE FROM user_repos WHERE repo_id = ? AND relation = 'followed'`).run(row.id);
+    db.prepare('UPDATE repos SET share_enabled = 0 WHERE id = ?').run(row.id);
+  }
+
   db.prepare(
     `INSERT INTO metrics_daily (repo_id, day, stars, forks, watchers, open_issues, open_prs, release_downloads)
      SELECT id, @day, stars, forks, watchers, open_issues, open_prs,
@@ -133,9 +145,19 @@ export function upsertRepo(db: DB, r: GqlRepo): number {
   return row.id;
 }
 
-/** Untracks repos beyond the plan limit, keeping pinned and most-viewed ones. */
+/**
+ * Brings an account back within its plan: untracks repos beyond the limit
+ * (keeping pinned and most-viewed ones) and switches off sharing the plan no
+ * longer includes. Followed repos and all history are kept.
+ */
 export function enforceLimits(db: DB, user: UserRow): void {
-  const max = planLimits(effectivePlan(user)).trackedRepos;
+  const limits = planLimits(effectivePlan(user));
+  if (!limits.sharePages) {
+    db.prepare(
+      'UPDATE repos SET share_enabled = 0 WHERE share_enabled = 1 AND id IN (SELECT repo_id FROM user_repos WHERE user_id = ? AND can_admin = 1)',
+    ).run(user.id);
+  }
+  const max = limits.trackedRepos;
   if (max === null) return;
   const tracked = db
     .prepare(
@@ -298,7 +320,7 @@ interface RestRelease {
 export async function syncReleases(db: DB, gh: GitHub, repo: RepoRow): Promise<void> {
   const releases: RestRelease[] = [];
   let url: string | null = `/repos/${repo.owner}/${repo.name}/releases`;
-  for (let page = 0; url && page < 3; page++) {
+  for (let page = 0; url && page < 10; page++) {
     const res: Awaited<ReturnType<typeof gh.rest<RestRelease[]>>> = await gh.rest<RestRelease[]>(url, {
       query: page === 0 ? { per_page: 100 } : undefined,
       allow: [403, 404],
@@ -344,7 +366,8 @@ export async function syncCommits(db: DB, gh: GitHub, repo: RepoRow): Promise<vo
       query: page === 0 ? { per_page: 100, since: latest ?? undefined } : undefined,
       allow: [403, 404, 409], // 409 = empty repository
     });
-    if (res.status !== 200 || !Array.isArray(res.data)) break;
+    if (res.status === 409) break; // empty repository: nothing to fetch, and that is final
+    if (res.status !== 200 || !Array.isArray(res.data)) return; // try again next sync
     db.transaction(() => {
       for (const c of res.data) {
         const date = c.commit.committer?.date ?? c.commit.author?.date;

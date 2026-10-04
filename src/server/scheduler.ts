@@ -1,5 +1,6 @@
 import { config, effectivePlan, planLimits } from './config.ts';
 import { nowIso, type DB, type UserRow } from './db.ts';
+import { seedDemo } from './demo.ts';
 import { syncUser } from './sync.ts';
 
 /** A failed sync is not retried sooner than this, so a rate-limited account is left alone. */
@@ -28,6 +29,7 @@ export function startScheduler(db: DB): () => void {
     busy = true;
     try {
       db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(nowIso());
+      if (config.demo) seedDemo(db); // keeps the sample data ending "today"
       for (const user of dueUsers(db)) await syncUser(db, user.id);
     } catch (err) {
       console.error('[scheduler]', err);

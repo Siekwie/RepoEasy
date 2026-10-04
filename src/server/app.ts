@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
 import type {
   ApiError,
@@ -11,13 +12,26 @@ import type {
   UserSettings,
 } from '../shared/api.ts';
 import { BADGE_METRICS, badgeSvg, repoBadge } from './badges.ts';
-import { applyStripeEvent, checkoutUrl, portalUrl, verifyStripeSignature } from './billing.ts';
+import { applyStripeEvent, cancelSubscription, checkoutUrl, portalUrl, verifyStripeSignature } from './billing.ts';
 import { config, effectivePlan, planLimits, VERSION } from './config.ts';
 import { randomToken, safeEqual, sha256 } from './crypto.ts';
 import { nowIso, type DB, type RepoRow, type UserRow } from './db.ts';
 import { checkWebhookUrl } from './events.ts';
 import { fetchRepoByName, fetchViewer, GitHub, GitHubError } from './github.ts';
-import { ApiFail, body, createSession, csv, currentUser, destroySession, fail, requireUser, sameOrigin, type Env } from './http.ts';
+import {
+  ApiFail,
+  body,
+  clientAddress,
+  createSession,
+  csv,
+  currentUser,
+  destroySession,
+  fail,
+  requireUser,
+  sameOrigin,
+  trustedHost,
+  type Env,
+} from './http.ts';
 import * as q from './queries.ts';
 import { collectRepo, syncUser, upsertRepo, userSettings } from './sync.ts';
 import { accessToken, exchangeCode, upsertUser } from './tokens.ts';
@@ -26,6 +40,8 @@ export interface AppDeps {
   /** GitHub client for a user; replaced in tests. */
   githubFor?: (user: UserRow) => Promise<GitHub>;
   fetchFn?: typeof fetch;
+  /** Single-user mode: the account that /auth/local signs in as, once it exists. */
+  localUserId?: () => number | null;
 }
 
 const OAUTH_STATE_COOKIE = 're_oauth_state';
@@ -44,6 +60,8 @@ export function createApp(db: DB, deps: AppDeps = {}) {
   const app = new Hono<Env>();
   const githubFor = deps.githubFor ?? (async (user: UserRow) => new GitHub(await accessToken(db, user, deps.fetchFn)));
   const getUser = (id: number) => db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow;
+  /** Single-user sign-in is offered only where a stranger cannot reach it, or behind a password. */
+  const localSignIn = Boolean(config.localToken) && (!config.exposed || Boolean(config.appPassword));
   const repoId = (value: string) => {
     const id = Number(value);
     return Number.isInteger(id) && id > 0 ? id : fail('not-found', 'Repository not found.');
@@ -73,6 +91,14 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     c.header('Referrer-Policy', 'strict-origin-when-cross-origin');
     if (!c.req.path.startsWith('/badge/')) c.header('X-Frame-Options', 'DENY');
   });
+
+  const tooLarge = () => fail('bad-request', 'Request body is too large.');
+  const smallBody = bodyLimit({ maxSize: 64 * 1024, onError: tooLarge });
+  const webhookBody = bodyLimit({ maxSize: 1024 * 1024, onError: tooLarge });
+  app.use('/api/*', (c, next) => (c.req.path === '/api/billing/webhook' ? webhookBody(c, next) : smallBody(c, next)));
+  app.use('/auth/*', smallBody);
+  app.use('/api/*', trustedHost);
+  app.use('/auth/*', trustedHost);
 
   // ---- Stripe webhook (signed by Stripe, so it sits outside the same-origin check) ----
 
@@ -106,8 +132,8 @@ export function createApp(db: DB, deps: AppDeps = {}) {
         githubAppInstallUrl: config.github.appSlug
           ? `${config.github.webUrl}/apps/${config.github.appSlug}/installations/new`
           : null,
-        local: Boolean(config.localToken),
-        localNeedsPassword: Boolean(config.localToken && config.appPassword),
+        local: localSignIn,
+        localNeedsPassword: localSignIn && Boolean(config.appPassword),
         demo: config.demo,
       },
       billing: {
@@ -172,29 +198,37 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     }
   });
 
-  let failedLocalLogins: number[] = [];
+  // failed password attempts per client address
+  const failedLocalLogins = new Map<string, number[]>();
   app.post('/auth/local', async (c) => {
     if (!config.localToken) return fail('not-found', 'Local sign-in is not enabled.');
+    if (!localSignIn) return fail('forbidden', 'This server is reachable from other machines. Set APP_PASSWORD to enable sign-in.');
     if (config.appPassword) {
       const now = Date.now();
-      failedLocalLogins = failedLocalLogins.filter((t) => now - t < 10 * 60_000);
-      if (failedLocalLogins.length >= 10) return fail('rate-limited', 'Too many attempts. Try again in a few minutes.');
+      const address = clientAddress(c);
+      const failures = (failedLocalLogins.get(address) ?? []).filter((t) => now - t < 10 * 60_000);
+      if (failures.length >= 10) return fail('rate-limited', 'Too many attempts. Try again in a few minutes.');
       const { password } = await body<{ password: string }>(c);
       if (typeof password !== 'string' || !safeEqual(sha256(password), sha256(config.appPassword))) {
-        failedLocalLogins.push(now);
+        if (failedLocalLogins.size > 10_000) failedLocalLogins.clear();
+        failedLocalLogins.set(address, [...failures, now]);
         return fail('unauthorized', 'Wrong password.');
       }
     }
-    const user = db.prepare('SELECT id FROM users WHERE is_demo = 0 ORDER BY id LIMIT 1').get() as { id: number } | undefined;
-    if (!user) return fail('internal', 'The local account is not ready yet. Check the server log for a GitHub token error.');
-    createSession(c, db, user.id);
+    const userId = deps.localUserId?.() ?? null;
+    if (userId === null) return fail('internal', 'The local account is not ready yet. Check the server log for a GitHub token error.');
+    createSession(c, db, userId);
     return c.json({ ok: true });
   });
 
   app.post('/auth/demo', (c) => {
     const demo = db.prepare('SELECT id FROM users WHERE is_demo = 1 LIMIT 1').get() as { id: number } | undefined;
     if (!config.demo || !demo) return fail('not-found', 'The demo is not enabled.');
-    createSession(c, db, demo.id);
+    // anyone can call this, so demo sessions are short-lived and capped
+    db.prepare(
+      'DELETE FROM sessions WHERE user_id = ? AND id NOT IN (SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 2000)',
+    ).run(demo.id, demo.id);
+    createSession(c, db, demo.id, 1);
     return c.json({ ok: true });
   });
 
@@ -230,7 +264,15 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     return c.json(q.me(db, getUser(user.id)));
   });
 
-  app.delete('/api/me', (c) => {
+  app.delete('/api/me', async (c) => {
+    if (config.billing.enabled && c.var.user.stripe_subscription_id) {
+      try {
+        await cancelSubscription(c.var.user, deps.fetchFn);
+      } catch (err) {
+        console.error('[billing] cancel on account deletion failed:', err instanceof Error ? err.message : err);
+        return fail('internal', 'Your subscription could not be cancelled, so the account was not deleted. Cancel it under "Manage subscription" and try again.');
+      }
+    }
     db.transaction(() => {
       db.prepare('DELETE FROM users WHERE id = ?').run(c.var.user.id);
       // history of repos nobody else is linked to goes with the account
@@ -271,18 +313,23 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     if (!node) return fail('not-found', `${parsed.owner}/${parsed.name} was not found on GitHub.`);
     if (node.isPrivate) return fail('bad-request', 'Only public repositories can be followed.');
 
-    const id = upsertRepo(db, node);
-    const existing = db.prepare('SELECT relation, gone FROM user_repos WHERE user_id = ? AND repo_id = ?').get(user.id, id) as
-      | { relation: string; gone: number }
-      | undefined;
-    if (existing && !existing.gone) {
-      if (existing.relation !== 'followed') return fail('bad-request', `${node.nameWithOwner} is already one of your repositories.`);
-      return c.json(q.repoSummaries(db, user.id, id)[0]);
+    const existing = db
+      .prepare(
+        `SELECT ur.relation, ur.gone FROM user_repos ur JOIN repos r ON r.id = ur.repo_id
+         WHERE ur.user_id = ? AND r.github_id = ?`,
+      )
+      .get(user.id, node.databaseId) as { relation: string; gone: number } | undefined;
+    if (existing && !existing.gone && existing.relation !== 'followed') {
+      return fail('bad-request', `${node.nameWithOwner} is already one of your repositories.`);
     }
+    const alreadyFollowing = Boolean(existing && !existing.gone);
     const max = planLimits(effectivePlan(user)).followedRepos;
-    if (max !== null && q.me(db, user).usage.followed >= max) {
+    // checked before anything is written, so a refused request leaves no rows behind
+    if (!alreadyFollowing && max !== null && q.me(db, user).usage.followed >= max) {
       return fail('plan-limit', `Your plan follows up to ${max} repositories.`);
     }
+    const id = upsertRepo(db, node);
+    if (alreadyFollowing) return c.json(q.repoSummaries(db, user.id, id)[0]);
     db.prepare(
       `INSERT INTO user_repos (user_id, repo_id, relation, added_at) VALUES (?, ?, 'followed', ?)
        ON CONFLICT(user_id, repo_id) DO UPDATE SET relation = 'followed', gone = 0, tracked = 0, can_push = 0, can_admin = 0`,
@@ -344,7 +391,8 @@ export function createApp(db: DB, deps: AppDeps = {}) {
       values.push(patch.note?.trim().slice(0, 4000) || null);
     }
     if (typeof patch.shareEnabled === 'boolean') {
-      if (!link.can_push || link.relation === 'followed') return fail('forbidden', 'Only maintainers can share a repository.');
+      if (!link.can_admin || link.relation === 'followed') return fail('forbidden', 'Only repository admins can change sharing.');
+      if (patch.shareEnabled && link.private) return fail('bad-request', 'Private repositories cannot be shared publicly.');
       if (patch.shareEnabled && !limits.sharePages) return fail('plan-limit', 'Public share pages and badges are part of the Pro plan.');
       db.prepare('UPDATE repos SET share_enabled = ? WHERE id = ?').run(patch.shareEnabled ? 1 : 0, id);
     }
@@ -560,7 +608,7 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     try {
       return c.json({ url: await checkoutUrl(c.var.user, interval === 'year' ? 'year' : 'month', deps.fetchFn) });
     } catch (err) {
-      return fail('internal', err instanceof Error ? err.message : 'Could not start checkout.');
+      return fail('bad-request', err instanceof Error ? err.message : 'Could not start checkout.');
     }
   });
 

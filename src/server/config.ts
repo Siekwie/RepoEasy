@@ -28,19 +28,31 @@ const port = int('PORT', 8787);
 const dataDir = resolve(str('DATA_DIR') ?? './data');
 const stripeSecretKey = str('STRIPE_SECRET_KEY');
 const baseUrl = (str('BASE_URL') ?? `http://localhost:${port}`).replace(/\/+$/, '');
-const local = ['localhost', '127.0.0.1'].includes(new URL(baseUrl).hostname);
+const LOOPBACK = ['localhost', '127.0.0.1', '[::1]', '::1'];
+const local = LOOPBACK.includes(new URL(baseUrl).hostname);
+const host = str('HOST') ?? '127.0.0.1';
+const extraOrigins = (str('ALLOWED_ORIGINS') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+const githubClientId = str('GITHUB_CLIENT_ID');
+/** More than one person can have an account here: user input gets hosted-service treatment. */
+const multiUser = Boolean(githubClientId) || Boolean(stripeSecretKey);
 
 export const config = {
   port,
-  host: str('HOST') ?? '127.0.0.1',
+  host,
   baseUrl,
+  multiUser,
+  /**
+   * Hostnames this server answers API and auth requests for. Anything else is
+   * refused, which stops DNS-rebinding pages from talking to a local instance.
+   */
+  allowedHosts: [...new Set([new URL(baseUrl).hostname, ...extraOrigins.map((o) => new URL(o).hostname), ...LOOPBACK])],
   /**
    * Origins allowed to send state-changing requests besides the server's own host.
    * A local instance also trusts the Vite dev server, whose proxy rewrites Host.
    */
   allowedOrigins: [
     new URL(baseUrl).origin,
-    ...(str('ALLOWED_ORIGINS') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+    ...extraOrigins,
     ...(local ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : []),
   ],
   dataDir,
@@ -48,7 +60,7 @@ export const config = {
   webDir: resolve(str('WEB_DIR') ?? './dist/web'),
 
   github: {
-    clientId: str('GITHUB_CLIENT_ID'),
+    clientId: githubClientId,
     clientSecret: str('GITHUB_CLIENT_SECRET'),
     /** Scopes requested from a classic OAuth App. Ignored by GitHub Apps (they use app permissions). */
     scopes: str('GITHUB_SCOPES') ?? 'read:user repo',
@@ -58,11 +70,13 @@ export const config = {
     webUrl: (str('GITHUB_WEB_URL') ?? 'https://github.com').replace(/\/+$/, ''),
   },
 
-  /** Single-user self-host mode: this token's account is the only account. */
-  localToken: str('GITHUB_TOKEN'),
+  /** Single-user self-host mode: this token's account is the only account. Ignored on a multi-user instance. */
+  localToken: multiUser ? null : str('GITHUB_TOKEN'),
   appPassword: str('APP_PASSWORD'),
+  /** Reachable beyond this machine: the local sign-in then insists on APP_PASSWORD. */
+  exposed: !local || !LOOPBACK.includes(host),
   demo: flag('DEMO'),
-  /** Comma-separated GitHub logins that always get every feature on a hosted instance. */
+  /** Comma-separated GitHub logins or numeric user ids that always get every feature on a hosted instance. */
   adminLogins: (str('ADMIN_LOGINS') ?? '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
@@ -127,9 +141,10 @@ export function planLimits(plan: Plan): PlanLimits {
  * The plan a user effectively has. Without billing configured every account is
  * `selfhost` (everything unlocked); admins are unlocked on hosted instances too.
  */
-export function effectivePlan(user: { login: string; plan: string; plan_expires_at: string | null }): Plan {
+export function effectivePlan(user: { login: string; github_id: number | null; plan: string; plan_expires_at: string | null }): Plan {
   if (!config.billing.enabled) return 'selfhost';
-  if (config.adminLogins.includes(user.login.toLowerCase())) return 'selfhost';
+  // ids are safer than logins, which can be renamed and re-registered by someone else
+  if (config.adminLogins.includes(user.login.toLowerCase()) || config.adminLogins.includes(String(user.github_id))) return 'selfhost';
   // plan_expires_at is the paid-through date; a few days of grace cover late renewal webhooks
   const grace = 3 * 86_400_000;
   if (user.plan === 'pro' && (!user.plan_expires_at || Date.parse(user.plan_expires_at) + grace > Date.now())) {

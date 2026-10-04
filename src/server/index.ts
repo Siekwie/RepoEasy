@@ -13,7 +13,8 @@ import { syncUser } from './sync.ts';
 import { upsertUser } from './tokens.ts';
 
 const db = openDb(config.dbPath);
-const app = createApp(db);
+let localUserId: number | null = null;
+const app = createApp(db, { localUserId: () => localUserId });
 
 // The built web app. API, auth and badge routes are registered first and win.
 if (existsSync(join(config.webDir, 'index.html'))) {
@@ -62,18 +63,23 @@ if (config.demo) seedDemo(db);
 async function setupLocalUser(token: string): Promise<void> {
   try {
     const profile = await fetchViewer(new GitHub(token));
-    const userId = upsertUser(db, profile, { accessToken: token, refreshToken: null, expiresAt: null });
+    localUserId = upsertUser(db, profile, { accessToken: token, refreshToken: null, expiresAt: null });
     console.log(`[local] single-user mode for @${profile.login}`);
-    if (!config.sync.disabled) void syncUser(db, userId);
+    if (!config.sync.disabled) void syncUser(db, localUserId);
   } catch (err) {
     console.error(`[local] GITHUB_TOKEN could not be used: ${err instanceof Error ? err.message : err}`);
+    // GitHub unreachable or token expired: the archive is still worth looking at
+    const known = db.prepare('SELECT id FROM users WHERE is_demo = 0').all() as Array<{ id: number }>;
+    if (known.length === 1) localUserId = known[0]!.id;
   }
 }
 if (config.localToken) {
   void setupLocalUser(config.localToken);
-  if (!config.appPassword && !['127.0.0.1', 'localhost', '::1'].includes(config.host)) {
-    console.warn('[local] HOST is not loopback and APP_PASSWORD is unset: anyone who can reach this server can sign in.');
+  if (config.exposed && !config.appPassword) {
+    console.warn('[local] This server is reachable from other machines (HOST or BASE_URL is not local). Sign-in stays disabled until APP_PASSWORD is set.');
   }
+} else if (process.env.GITHUB_TOKEN && config.multiUser) {
+  console.warn('[local] GITHUB_TOKEN is ignored because GitHub sign-in or billing is configured.');
 }
 
 const stopScheduler = config.sync.disabled ? () => {} : startScheduler(db);
