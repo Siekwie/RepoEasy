@@ -36,7 +36,7 @@ export function ReleasesCard({ repo: d }: { repo: RepoDetail }) {
                       {r.assets.map((a) => (
                         <li key={a.name}>
                           <span className="clip">{a.name}</span>
-                          <span className="muted">{bytes(a.size)}</span>
+                          <span className="muted">{a.size > 0 ? bytes(a.size) : ''}</span>
                           <span className="num">{exact(a.downloads)}</span>
                         </li>
                       ))}

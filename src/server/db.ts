@@ -225,6 +225,11 @@ const migrations: string[] = [
   ALTER TABLE users ADD COLUMN signup_source TEXT;
   ALTER TABLE users ADD COLUMN last_seen_at TEXT;
   `,
+  `
+  -- Where a repository is hosted: 'github' or 'codeberg'. github_id is unique across hosts, so a
+  -- Codeberg repository is stored under its Codeberg id plus an offset (see codeberg.ts).
+  ALTER TABLE repos ADD COLUMN host TEXT NOT NULL DEFAULT 'github';
+  `,
 ];
 
 export function openDb(path: string): DB {
@@ -249,6 +254,13 @@ export const nowIso = () => new Date().toISOString();
 
 /** UTC calendar day `YYYY-MM-DD`. */
 export const dayOf = (date: Date | string | number = new Date()) => new Date(date).toISOString().slice(0, 10);
+
+/** Forgejo reports local times with an offset; everything stored is UTC, the way GitHub reports it. */
+export function utcIso(iso: string | null | undefined): string | null {
+  if (!iso || iso.endsWith('Z')) return iso || null;
+  const time = Date.parse(iso);
+  return Number.isNaN(time) ? null : new Date(time).toISOString().replace('.000Z', 'Z');
+}
 
 export function addDays(day: string, delta: number): string {
   return dayOf(Date.parse(`${day}T00:00:00Z`) + delta * 86_400_000);
@@ -323,6 +335,7 @@ export interface RepoRow {
   commits_pushed_at: string | null;
   star_backfill_page: number;
   star_backfill_done: number;
+  host: string;
 }
 
 export interface UserRepoRow {

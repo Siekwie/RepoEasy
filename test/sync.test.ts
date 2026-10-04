@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { addDays, dayOf } from '../src/server/db.ts';
 import * as q from '../src/server/queries.ts';
 import { setup } from './helpers.ts';
@@ -139,6 +139,30 @@ describe('repo lifecycle', () => {
     repo.pushedAt = `${d(1)}T10:00:00Z`;
     await t.sync();
     expect(q.commits(t.db, q.oneRepo(1), 10).map((c) => c.message)).toEqual(['Merge', 'On main', 'From the branch']);
+  });
+});
+
+describe('codeberg', () => {
+  it('pages through commits only until a page holds nothing new', async () => {
+    // one commit a day for 120 days; Codeberg serves 50 per page and has no `since` filter
+    const commits = Array.from({ length: 120 }, (_, i) => ({ sha: String(i).padStart(40, '0'), message: `Commit ${i}`, date: `${d(i)}T10:00:00+02:00` }));
+    const berg = { id: 30, owner: 'vendor', name: 'tool', commits, pushedAt: `${d(0)}T10:00:00+02:00` };
+    const t = setup([{ id: 10, owner: 'alice', name: 'lib' }]);
+    t.state.codeberg = [berg];
+    await t.sync();
+
+    const { data } = await t.api('POST', '/api/repos/follow', { fullName: 'codeberg.org/vendor/tool' });
+    const stored = () => (t.db.prepare('SELECT COUNT(*) n FROM commits WHERE repo_id = ?').get(data.id) as { n: number }).n;
+    await vi.waitFor(() => expect(stored()).toBe(120));
+
+    berg.commits.push({ sha: 'f'.repeat(40), message: 'Newest', date: `${today}T22:00:00+02:00` });
+    berg.pushedAt = `${today}T22:00:00+02:00`;
+    t.state.calls.length = 0;
+    t.age();
+    await t.sync();
+    expect(stored()).toBe(121);
+    // page 1 holds the new commit, page 2 is entirely older than the 30-day overlap, page 3 is never asked for
+    expect(t.state.calls.filter((c) => c === 'GET /api/v1/repos/vendor/tool/commits')).toHaveLength(2);
   });
 });
 

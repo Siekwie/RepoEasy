@@ -6,6 +6,8 @@ export class GitHubError extends Error {
     readonly status: number,
     /** Primary or secondary rate limit: stop and try again later. */
     readonly rateLimited = false,
+    /** The service that failed, for messages: Codeberg is reached through the same client. */
+    readonly service = 'GitHub',
   ) {
     super(message);
     this.name = 'GitHubError';
@@ -39,12 +41,21 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export class GitHub {
   rateRemaining: number | null = null;
   requests = 0;
+  protected readonly service: string = 'GitHub';
 
   constructor(
-    private readonly token: string,
+    protected readonly token: string,
     private readonly fetchFn: FetchFn = fetch,
     private readonly apiUrl = config.github.apiUrl,
   ) {}
+
+  protected headers(): Record<string, string> {
+    return {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${this.token}`,
+      'X-GitHub-Api-Version': '2022-11-28',
+    };
+  }
 
   private async request(url: string, init: RequestInit, attempts = 3): Promise<Response> {
     let lastError: unknown;
@@ -56,9 +67,7 @@ export class GitHub {
         res = await this.fetchFn(url, {
           ...init,
           headers: {
-            Accept: 'application/vnd.github+json',
-            Authorization: `Bearer ${this.token}`,
-            'X-GitHub-Api-Version': '2022-11-28',
+            ...this.headers(),
             'User-Agent': 'RepoEasy',
             ...(init.body ? { 'Content-Type': 'application/json' } : {}),
             ...init.headers,
@@ -74,13 +83,13 @@ export class GitHub {
         this.rateRemaining = Number(remaining);
       }
       if (res.status >= 500) {
-        lastError = new GitHubError(`GitHub responded ${res.status}`, res.status);
+        lastError = new GitHubError(`${this.service} responded ${res.status}`, res.status, false, this.service);
         continue;
       }
       return res;
     }
     if (lastError instanceof GitHubError) throw lastError;
-    throw new GitHubError(`GitHub request failed: ${(lastError as Error)?.message ?? 'network error'}`, 0);
+    throw new GitHubError(`${this.service} request failed: ${(lastError as Error)?.message ?? 'network error'}`, 0, false, this.service);
   }
 
   private static rateLimited(res: Response): boolean {
@@ -91,14 +100,14 @@ export class GitHub {
   }
 
   private async fail(res: Response): Promise<never> {
-    let message = `GitHub responded ${res.status}`;
+    let message = `${this.service} responded ${res.status}`;
     try {
       const body = (await res.json()) as { message?: string };
       if (body.message) message = body.message;
     } catch {
       // non-JSON error body
     }
-    throw new GitHubError(message, res.status, GitHub.rateLimited(res));
+    throw new GitHubError(message, res.status, GitHub.rateLimited(res), this.service);
   }
 
   async rest<T>(path: string, options: RestOptions = {}): Promise<RestResponse<T>> {

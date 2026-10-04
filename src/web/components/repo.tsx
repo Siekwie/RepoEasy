@@ -1,4 +1,4 @@
-import type { CiState, RepoHealth, RepoSummary } from '../../shared/api.ts';
+import type { CiState, RepoHealth, RepoHost, RepoSummary } from '../../shared/api.ts';
 import { Icon } from './Icon.tsx';
 
 const CI: Record<NonNullable<CiState>, { label: string; cls: string; icon: string }> = {
@@ -19,9 +19,16 @@ export function CiBadge({ state }: { state: CiState }) {
   );
 }
 
-export function RepoMarkers({ repo }: { repo: Pick<RepoSummary, 'private' | 'fork' | 'archived'> }) {
+export const HOST_NAMES: Record<RepoHost, string> = { github: 'GitHub', codeberg: 'Codeberg' };
+
+export function RepoMarkers({ repo }: { repo: Pick<RepoSummary, 'host' | 'private' | 'fork' | 'archived'> }) {
   return (
     <>
+      {repo.host !== 'github' && (
+        <span className="marker" title={`Hosted on ${HOST_NAMES[repo.host]}`}>
+          {HOST_NAMES[repo.host]}
+        </span>
+      )}
       {repo.private && (
         <span className="marker" title="Private repository">
           <Icon name="lock" size={12} /> Private
@@ -33,7 +40,7 @@ export function RepoMarkers({ repo }: { repo: Pick<RepoSummary, 'private' | 'for
         </span>
       )}
       {repo.archived && (
-        <span className="marker" title="Archived on GitHub">
+        <span className="marker" title={`Archived on ${HOST_NAMES[repo.host]}`}>
           <Icon name="archive" size={12} /> Archived
         </span>
       )}
@@ -58,7 +65,7 @@ export const HEALTH_CHECKS: Array<{ issue: RepoHealth['issues'][number]; ok: str
   { issue: 'no-description', ok: 'Has a description', bad: 'No description', fix: 'Add a one-line description so people know what this is at a glance.' },
   { issue: 'no-readme', ok: 'Has a README', bad: 'No README', fix: 'Add a README with what it does, how to install it and a short example.' },
   { issue: 'no-license', ok: 'Has a license', bad: 'No license', fix: 'Add a LICENSE file. Without one, others cannot legally reuse your code.' },
-  { issue: 'no-topics', ok: 'Has topics', bad: 'No topics', fix: 'Add a few topics so the repository shows up in GitHub search and topic pages.' },
+  { issue: 'no-topics', ok: 'Has topics', bad: 'No topics', fix: 'Add a few topics so the repository shows up in search and on topic pages.' },
   { issue: 'stale', ok: 'Recently active', bad: 'No recent pushes', fix: 'Push a change, or archive the repository if it is finished.' },
-  { issue: 'ci-failing', ok: 'CI is not failing', bad: 'CI is failing', fix: 'Open the latest failing run on GitHub and fix or re-run it.' },
+  { issue: 'ci-failing', ok: 'CI is not failing', bad: 'CI is failing', fix: 'Open the latest failing run and fix or re-run it.' },
 ];

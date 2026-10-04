@@ -18,6 +18,7 @@ import { applyStripeEvent, cancelSubscription, checkoutUrl, portalUrl, verifyStr
 import { config, effectivePlan, isAdmin, planLimits, VERSION } from './config.ts';
 import { randomToken, safeEqual, sha256 } from './crypto.ts';
 import { nowIso, type DB, type RepoRow, type UserRow } from './db.ts';
+import { Codeberg, fetchCodebergRepo } from './codeberg.ts';
 import { checkWebhookUrl } from './events.ts';
 import { fetchRepoByName, fetchViewer, GitHub, GitHubError } from './github.ts';
 import {
@@ -35,7 +36,7 @@ import {
   type Env,
 } from './http.ts';
 import * as q from './queries.ts';
-import { collectRepo, syncUser, upsertRepo, userSettings } from './sync.ts';
+import { collectRepo, repoRecord, saveRepo, syncUser, userSettings } from './sync.ts';
 import { accessToken, exchangeCode, upsertUser } from './tokens.ts';
 import { hitAllowed, recordVisit, rememberSource, takeSource, visitSource } from './visits.ts';
 
@@ -60,13 +61,13 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     return Number.isInteger(id) && id > 0 ? id : fail('not-found', 'Repository not found.');
   };
   const linkOr404 = (userId: number, id: number) => q.getLink(db, userId, id) ?? fail('not-found', 'Repository not found.');
-  /** Wraps GitHub failures in handler code as a readable API error. */
+  /** Wraps GitHub (and Codeberg) failures in handler code as a readable API error. */
   const github = async <T>(work: () => Promise<T>): Promise<T> => {
     try {
       return await work();
     } catch (err) {
       if (err instanceof GitHubError) {
-        return fail(err.rateLimited ? 'rate-limited' : 'github-error', `GitHub: ${err.message}`);
+        return fail(err.rateLimited ? 'rate-limited' : 'github-error', `${err.service}: ${err.message}`);
       }
       throw err;
     }
@@ -329,21 +330,27 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     const user = c.var.user;
     const { fullName } = await body<{ fullName: string }>(c);
     const parsed = typeof fullName === 'string' ? parseRepoName(fullName) : null;
-    if (!parsed) return fail('bad-request', 'Enter a repository as owner/name or paste its GitHub URL.');
+    if (!parsed) return fail('bad-request', 'Enter a repository as owner/name, or paste its GitHub or Codeberg URL.');
 
-    const gh = await github(() => githubFor(user));
-    const node = await github(() => fetchRepoByName(gh, parsed.owner, parsed.name));
-    if (!node) return fail('not-found', `${parsed.owner}/${parsed.name} was not found on GitHub.`);
-    if (node.isPrivate) return fail('bad-request', 'Only public repositories can be followed.');
+    // Codeberg is read without the user's GitHub token
+    const onCodeberg = parsed.host === 'codeberg';
+    const client = onCodeberg ? new Codeberg(deps.fetchFn) : await github(() => githubFor(user));
+    const found = await github(async () => {
+      if (client instanceof Codeberg) return fetchCodebergRepo(client, parsed.owner, parsed.name);
+      const node = await fetchRepoByName(client, parsed.owner, parsed.name);
+      return node && repoRecord(node);
+    });
+    if (!found) return fail('not-found', `${parsed.owner}/${parsed.name} was not found on ${onCodeberg ? 'Codeberg' : 'GitHub'}.`);
+    if (found.private) return fail('bad-request', 'Only public repositories can be followed.');
 
     const existing = db
       .prepare(
         `SELECT ur.relation, ur.gone FROM user_repos ur JOIN repos r ON r.id = ur.repo_id
          WHERE ur.user_id = ? AND r.github_id = ?`,
       )
-      .get(user.id, node.databaseId) as { relation: string; gone: number } | undefined;
+      .get(user.id, found.github_id) as { relation: string; gone: number } | undefined;
     if (existing && !existing.gone && existing.relation !== 'followed') {
-      return fail('bad-request', `${node.nameWithOwner} is already one of your repositories.`);
+      return fail('bad-request', `${found.full_name} is already one of your repositories.`);
     }
     const alreadyFollowing = Boolean(existing && !existing.gone);
     const max = planLimits(effectivePlan(user)).followedRepos;
@@ -351,7 +358,7 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     if (!alreadyFollowing && max !== null && q.me(db, user).usage.followed >= max) {
       return fail('plan-limit', `Your plan follows up to ${max} repositories.`);
     }
-    const id = upsertRepo(db, node);
+    const id = saveRepo(db, found);
     if (alreadyFollowing) return c.json(q.repoSummaries(db, user.id, id)[0]);
     db.prepare(
       `INSERT INTO user_repos (user_id, repo_id, relation, added_at) VALUES (?, ?, 'followed', ?)
@@ -359,7 +366,7 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     ).run(user.id, id, nowIso());
     // releases, commits and star history arrive in the background
     const repo = db.prepare('SELECT * FROM repos WHERE id = ?').get(id) as RepoRow;
-    void collectRepo(db, gh, repo, false).catch((err) => console.warn(`[follow] ${repo.full_name}: ${err.message}`));
+    void collectRepo(db, client, repo, false).catch((err) => console.warn(`[follow] ${repo.full_name}: ${err.message}`));
     return c.json(q.repoSummaries(db, user.id, id)[0], 201);
   });
 

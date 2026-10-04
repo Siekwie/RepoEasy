@@ -6,7 +6,7 @@ import { trafficSeries } from '../../lib/series.ts';
 import { Chart } from '../../components/charts.tsx';
 import { Card, Fetched } from '../../components/ui.tsx';
 
-/** Views and clones cards, or the explanation when GitHub won't show traffic for this repository. */
+/** Views and clones cards, or the explanation when there is no traffic to show for this repository. */
 export function TrafficCards({ repo: d, traffic, range, cumulative }: { repo: RepoDetail; traffic: FetchState<TrafficSeries | null>; range: Range; cumulative: boolean }) {
   const followed = d.relation === 'followed';
   const t = traffic.data;
@@ -22,9 +22,11 @@ export function TrafficCards({ repo: d, traffic, range, cumulative }: { repo: Re
     return (
       <Card title="Traffic" className="span-2">
         <p className="note">
-          {followed
-            ? 'Views and clones are only visible to people with push access to a repository, so they are not available for followed repositories. Stars, forks, issues and releases are tracked below.'
-            : "GitHub only reports views and clones to people with push access, and your account doesn't have it for this repository. Stars, forks, issues and releases are still tracked below."}
+          {d.host === 'codeberg'
+            ? 'Codeberg does not record views or clones, so there is no traffic to archive. Stars, forks, issues and releases are tracked below.'
+            : followed
+              ? 'Views and clones are only visible to people with push access to a repository, so they are not available for followed repositories. Stars, forks, issues and releases are tracked below.'
+              : "GitHub only reports views and clones to people with push access, and your account doesn't have it for this repository. Stars, forks, issues and releases are still tracked below."}
         </p>
       </Card>
     );

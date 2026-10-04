@@ -29,11 +29,11 @@ describe('crypto', () => {
 
 describe('helpers', () => {
   it('parses repository references', () => {
-    expect(parseRepoName('facebook/react')).toEqual({ owner: 'facebook', name: 'react' });
-    expect(parseRepoName(' https://github.com/BurntSushi/ripgrep/issues/1 ')).toEqual({ owner: 'BurntSushi', name: 'ripgrep' });
-    expect(parseRepoName('git@github.com:vladkens/ghstats.git')).toEqual({ owner: 'vladkens', name: 'ghstats' });
-    expect(parseRepoName('github.com/a/b.js')).toEqual({ owner: 'a', name: 'b.js' });
-    expect(parseRepoName('ssh://git@github.com/a/b.git')).toEqual({ owner: 'a', name: 'b' });
+    expect(parseRepoName('facebook/react')).toEqual({ host: 'github', owner: 'facebook', name: 'react' });
+    expect(parseRepoName(' https://github.com/BurntSushi/ripgrep/issues/1 ')).toEqual({ host: 'github', owner: 'BurntSushi', name: 'ripgrep' });
+    expect(parseRepoName('git@github.com:vladkens/ghstats.git')).toEqual({ host: 'github', owner: 'vladkens', name: 'ghstats' });
+    expect(parseRepoName('github.com/a/b.js')).toEqual({ host: 'github', owner: 'a', name: 'b.js' });
+    expect(parseRepoName('ssh://git@github.com/a/b.git')).toEqual({ host: 'github', owner: 'a', name: 'b' });
     expect(parseRepoName('just-a-name')).toBeNull();
     expect(parseRepoName('https://example.com/a/b')).toBeNull();
   });

@@ -9,7 +9,7 @@ GitHub only keeps 14 days of traffic for a repository. RepoEasy signs in with Gi
 traffic every day, and keeps it for good, so you get lifetime views, visitors, clones, referrers and
 popular pages for every repository you can push to, private ones included. It also records stars,
 forks, issues, pull requests and release downloads daily, backfills star history from before you
-started, and lets you follow any public repository to watch its numbers over time.
+started, and lets you follow any public repository on GitHub or Codeberg to watch its numbers over time.
 
 One small Node process, one SQLite file. Run it for yourself, or host it for others with plans and
 Stripe billing.
@@ -35,6 +35,9 @@ pages and README badges. Self-hosting has everything unlocked.
   automatically. Choose which ones are tracked.
 - **Follow public repositories.** Stars, forks, issues, releases, downloads and commits of any public
   repo, recorded daily. Star history is backfilled to the repo's first star.
+- **Codeberg too.** Paste a codeberg.org link to follow a repository there the same way. Codeberg
+  records no views or clones and does not date its stars, so there is no traffic and the star
+  history starts on the day you follow it.
 - **Overview.** Totals and trends across everything: traffic, stars, top repos, top referrers,
   languages, a commit calendar, and a feed of events (star milestones, traffic spikes, new referrers,
   new releases).

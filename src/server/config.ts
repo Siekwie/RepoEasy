@@ -79,6 +79,12 @@ export const config = {
     webUrl: (str('GITHUB_WEB_URL') ?? 'https://github.com').replace(/\/+$/, ''),
   },
 
+  codeberg: {
+    apiUrl: (str('CODEBERG_API_URL') ?? 'https://codeberg.org/api/v1').replace(/\/+$/, ''),
+    /** Optional. Public repositories are read without one; a token identifies this instance to Codeberg. */
+    token: str('CODEBERG_TOKEN'),
+  },
+
   /** Single-user self-host mode: this token's account is the only account. Ignored on a multi-user instance. */
   localToken: multiUser ? null : str('GITHUB_TOKEN'),
   appPassword: str('APP_PASSWORD'),

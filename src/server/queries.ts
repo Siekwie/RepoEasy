@@ -15,6 +15,7 @@ import type {
   Release,
   RepoDetail,
   RepoHealth,
+  RepoHost,
   RepoRelation,
   RepoSummary,
   SyncStatus,
@@ -231,9 +232,11 @@ export function repoHealth(r: RepoRow): RepoHealth {
     issues.push(issue);
     score -= cost;
   };
+  // Codeberg reports neither a README nor a license: those two are not judged there
+  const github = r.host === 'github';
   if (!r.description) add('no-description', 15);
-  if (!r.has_readme) add('no-readme', 20);
-  if (!r.private && !r.license) add('no-license', 15);
+  if (github && !r.has_readme) add('no-readme', 20);
+  if (github && !r.private && !r.license) add('no-license', 15);
   if (!r.private && json<string[]>(r.topics_json, []).length === 0) add('no-topics', 10);
   if (!r.archived && r.pushed_at && Date.now() - Date.parse(r.pushed_at) > 365 * 86_400_000) add('stale', 20);
   if (r.ci_state === 'FAILURE' || r.ci_state === 'ERROR') add('ci-failing', 20);
@@ -313,6 +316,7 @@ export function repoSummaries(db: DB, userId: number, onlyRepoId?: number): Repo
     const starsSpark = dailyStars([...(starHistory.get(r.id) ?? []), ...snaps]);
     return {
       id: r.id,
+      host: r.host as RepoHost,
       fullName: r.full_name,
       owner: r.owner,
       name: r.name,
@@ -571,12 +575,13 @@ export function me(db: DB, user: UserRow): Me {
 /**
  * A repo that may be shown publicly: public on GitHub, sharing switched on, and
  * still administered by someone on this instance (so it can be switched off again).
+ * Share pages are addressed by owner/name alone, which only GitHub repositories own.
  */
 export function sharedRepo(db: DB, owner: string, name: string): RepoRow | undefined {
   return db
     .prepare(
       `SELECT r.* FROM repos r
-       WHERE r.full_name = ? AND r.share_enabled = 1 AND r.private = 0
+       WHERE r.full_name = ? AND r.host = 'github' AND r.share_enabled = 1 AND r.private = 0
          AND EXISTS (SELECT 1 FROM user_repos ur WHERE ur.repo_id = r.id AND ur.can_admin = 1 AND ur.gone = 0)
        ORDER BY r.meta_synced_at DESC LIMIT 1`,
     )

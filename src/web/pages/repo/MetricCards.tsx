@@ -32,7 +32,7 @@ export function MetricCards({ repo: d, range }: { repo: RepoDetail; range: Range
     <>
       <Card
         title="Stars"
-        sub={d.starHistoryComplete ? 'Full history' : 'Older history is still being backfilled'}
+        sub={d.host === 'codeberg' ? 'Recorded daily since it was followed' : d.starHistoryComplete ? 'Full history' : 'Older history is still being backfilled'}
         busy={metrics.loading}
         actions={
           <Seg<'linear' | 'log'>

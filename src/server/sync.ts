@@ -1,6 +1,7 @@
 import type { UserSettings } from '../shared/api.ts';
 import { config, effectivePlan, planLimits } from './config.ts';
-import { dayOf, nowIso, type DB, type RepoRow, type UserRow } from './db.ts';
+import { Codeberg, fetchCodebergRepo } from './codeberg.ts';
+import { dayOf, nowIso, utcIso, type DB, type RepoRow, type UserRow } from './db.ts';
 import { detectEvents, deliverEvents, recordEvent } from './events.ts';
 import { fetchReposByNodeId, fetchViewerRepoIds, GitHub, GitHubError, type GqlRepo } from './github.ts';
 import { accessToken } from './tokens.ts';
@@ -69,7 +70,7 @@ export function syncUser(db: DB, userId: number, deps: SyncDeps = {}): Promise<v
 const canPush = (r: GqlRepo) => ['ADMIN', 'MAINTAIN', 'WRITE'].includes(r.viewerPermission ?? '');
 
 const REPO_COLUMNS = [
-  'github_id', 'node_id', 'owner', 'name', 'full_name', 'html_url', 'private', 'fork', 'archived', 'in_org',
+  'host', 'github_id', 'node_id', 'owner', 'name', 'full_name', 'html_url', 'private', 'fork', 'archived', 'in_org',
   'description', 'homepage', 'language', 'language_color', 'languages_json', 'topics_json', 'license',
   'default_branch', 'has_readme', 'size_kb', 'stars', 'forks', 'watchers', 'open_issues', 'open_prs',
   'release_count', 'commit_count', 'ci_state', 'latest_release_tag', 'latest_release_at', 'created_at_gh',
@@ -83,11 +84,13 @@ const UPSERT_REPO = `
     ${REPO_COLUMNS.filter((c) => c !== 'github_id').map((c) => `${c} = excluded.${c}`).join(', ')}
   RETURNING id`;
 
-/** Writes repo metadata plus today's metrics snapshot. Returns the local repo id. */
-export function upsertRepo(db: DB, r: GqlRepo): number {
-  const now = nowIso();
+/** One row of the repos table, as its host reports the repository. */
+export type RepoRecord = Record<(typeof REPO_COLUMNS)[number], string | number | null>;
+
+export function repoRecord(r: GqlRepo): RepoRecord {
   const commit = r.defaultBranchRef?.target;
-  const row = db.prepare(UPSERT_REPO).get({
+  return {
+    host: 'github',
     github_id: r.databaseId,
     node_id: r.id,
     owner: r.owner.login,
@@ -122,10 +125,15 @@ export function upsertRepo(db: DB, r: GqlRepo): number {
     latest_release_at: r.latestRelease?.publishedAt ?? null,
     created_at_gh: r.createdAt,
     pushed_at: r.pushedAt,
-    meta_synced_at: now,
-  }) as { id: number };
+    meta_synced_at: nowIso(),
+  };
+}
 
-  if (r.isPrivate) {
+/** Writes repo metadata plus today's metrics snapshot. Returns the local repo id. */
+export function saveRepo(db: DB, record: RepoRecord): number {
+  const row = db.prepare(UPSERT_REPO).get(record) as { id: number };
+
+  if (record.private) {
     // Only public repos can be followed. Once a repo turns private its followers lose it,
     // and it can no longer be shared publicly.
     db.prepare(`DELETE FROM user_repos WHERE repo_id = ? AND relation = 'followed'`).run(row.id);
@@ -144,6 +152,8 @@ export function upsertRepo(db: DB, r: GqlRepo): number {
   ).run({ id: row.id, day: dayOf() });
   return row.id;
 }
+
+export const upsertRepo = (db: DB, r: GqlRepo): number => saveRepo(db, repoRecord(r));
 
 /**
  * Brings an account back within its plan: untracks repos beyond the limit
@@ -326,15 +336,20 @@ interface RestRelease {
   prerelease: boolean;
   published_at: string | null;
   html_url: string;
-  assets: Array<{ name: string; download_count: number; size: number }>;
+  assets: Array<{ name: string; download_count: number; size: number }> | null;
+  /** Forgejo only: downloads of the source archives it generates for the tag. */
+  archive_download_count?: { zip?: number; tar_gz?: number } | null;
 }
+
+/** Forgejo (Codeberg) names the page size differently and caps it at 50. */
+const pageSize = (repo: RepoRow, size: number) => (repo.host === 'github' ? { per_page: size } : { limit: Math.min(size, 50) });
 
 export async function syncReleases(db: DB, gh: GitHub, repo: RepoRow): Promise<void> {
   const releases: RestRelease[] = [];
   let url: string | null = `/repos/${repo.owner}/${repo.name}/releases`;
   for (let page = 0; url && page < 10; page++) {
     const res: Awaited<ReturnType<typeof gh.rest<RestRelease[]>>> = await gh.rest<RestRelease[]>(url, {
-      query: page === 0 ? { per_page: 100 } : undefined,
+      query: page === 0 ? pageSize(repo, 100) : undefined,
       allow: [403, 404],
     });
     if (res.status !== 200 || !Array.isArray(res.data)) return;
@@ -349,10 +364,17 @@ export async function syncReleases(db: DB, gh: GitHub, repo: RepoRow): Promise<v
   db.transaction(() => {
     db.prepare('DELETE FROM releases WHERE repo_id = ?').run(repo.id);
     for (const r of releases) {
-      const assets = r.assets.map((a) => ({ name: a.name, downloads: a.download_count, size: a.size }));
+      const assets = (r.assets ?? []).map((a) => ({ name: a.name, downloads: a.download_count, size: a.size }));
+      const archives = r.archive_download_count;
+      if (archives) {
+        assets.push(
+          { name: 'Source code (zip)', downloads: archives.zip ?? 0, size: 0 },
+          { name: 'Source code (tar.gz)', downloads: archives.tar_gz ?? 0, size: 0 },
+        );
+      }
       const downloads = assets.reduce((sum, a) => sum + a.downloads, 0);
       total += downloads;
-      upsert.run(repo.id, r.id, r.tag_name, r.name, r.published_at, r.prerelease ? 1 : 0, downloads, r.html_url, JSON.stringify(assets));
+      upsert.run(repo.id, r.id, r.tag_name, r.name, utcIso(r.published_at), r.prerelease ? 1 : 0, downloads, r.html_url, JSON.stringify(assets));
     }
     db.prepare('UPDATE repos SET release_downloads = ?, detail_synced_at = ? WHERE id = ?').run(total, nowIso(), repo.id);
     db.prepare('UPDATE metrics_daily SET release_downloads = ? WHERE repo_id = ? AND day = ?').run(total, repo.id, dayOf());
@@ -382,19 +404,29 @@ export async function syncCommits(db: DB, gh: GitHub, repo: RepoRow): Promise<vo
   let url: string | null = `/repos/${repo.owner}/${repo.name}/commits`;
   for (let page = 0; url && page < config.sync.commitPages; page++) {
     const res: Awaited<ReturnType<typeof gh.rest<RestCommit[]>>> = await gh.rest<RestCommit[]>(url, {
-      query: page === 0 ? { per_page: 100, since } : undefined,
+      // Forgejo has no `since`, and unless told otherwise works out the changed files of every commit
+      query:
+        page !== 0
+          ? undefined
+          : repo.host === 'github'
+            ? { per_page: 100, since }
+            : { ...pageSize(repo, 100), stat: 'false', verification: 'false', files: 'false' },
       allow: [403, 404, 409], // 409 = empty repository
     });
     if (res.status === 409) break; // empty repository: nothing to fetch, and that is final
     if (res.status !== 200 || !Array.isArray(res.data)) return; // try again next sync
+    let allKnown = Boolean(since) && res.data.length > 0;
     db.transaction(() => {
       for (const c of res.data) {
-        const date = c.commit.committer?.date ?? c.commit.author?.date;
+        const date = utcIso(c.commit.committer?.date ?? c.commit.author?.date);
         if (!date) continue;
+        if (!since || Date.parse(date) >= Date.parse(since)) allKnown = false;
         const firstLine = c.commit.message.split('\n', 1)[0] ?? '';
         insert.run(repo.id, c.sha, firstLine.slice(0, 300), c.author?.login ?? null, c.commit.author?.name ?? null, c.author?.avatar_url ?? null, date, c.html_url);
       }
     })();
+    // a whole page from before the overlap: everything further back is stored already
+    if (allKnown) break;
     url = res.next;
   }
   db.prepare('UPDATE repos SET commits_pushed_at = ? WHERE id = ?').run(repo.pushed_at, repo.id);
@@ -436,8 +468,9 @@ const minutesSince = (iso: string | null) => (iso ? (Date.now() - Date.parse(iso
 
 /**
  * Per-repo collection: traffic (when the token has push access), releases,
- * commits and star history. Recently collected parts are skipped, so repos
- * shared by several accounts are not fetched twice.
+ * commits and star history (GitHub only: Codeberg does not date its stars).
+ * Recently collected parts are skipped, so repos shared by several accounts
+ * are not fetched twice.
  */
 export async function collectRepo(db: DB, gh: GitHub, repo: RepoRow, traffic: boolean): Promise<void> {
   const tasks: Array<[string, () => Promise<void>]> = [];
@@ -450,7 +483,7 @@ export async function collectRepo(db: DB, gh: GitHub, repo: RepoRow, traffic: bo
   if (repo.pushed_at && repo.pushed_at !== repo.commits_pushed_at) {
     tasks.push(['commits', () => syncCommits(db, gh, repo)]);
   }
-  if (!repo.star_backfill_done && repo.stars > 0) {
+  if (repo.host === 'github' && !repo.star_backfill_done && repo.stars > 0) {
     tasks.push(['star history', () => backfillStars(db, gh, repo)]);
   }
   for (const [label, task] of tasks) {
@@ -459,6 +492,32 @@ export async function collectRepo(db: DB, gh: GitHub, repo: RepoRow, traffic: bo
     } catch (err) {
       if (fatal(err)) throw err;
       console.warn(`[sync] ${repo.full_name}: ${label} skipped: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+}
+
+/**
+ * Refreshes and collects followed Codeberg repositories, one at a time. Codeberg being down or
+ * refusing requests never fails the account's sync: what cannot be read keeps its archived
+ * numbers and is tried again next time.
+ */
+async function syncCodeberg(db: DB, repos: RepoRow[], cb: Codeberg, collected: () => void): Promise<void> {
+  for (const repo of repos) {
+    try {
+      let current = repo;
+      // another follower's sync may have refreshed a shared repo moments ago
+      if (minutesSince(repo.meta_synced_at) > 60) {
+        const record = await fetchCodebergRepo(cb, repo.owner, repo.name);
+        // gone, or the name now belongs to a different repository
+        if (!record || record.github_id !== repo.github_id) continue;
+        current = db.prepare('SELECT * FROM repos WHERE id = ?').get(saveRepo(db, record)) as RepoRow;
+      }
+      if (!current.private) await collectRepo(db, cb, current, false);
+    } catch (err) {
+      console.warn(`[sync] codeberg ${repo.full_name}: ${err instanceof Error ? err.message : err}`);
+      if (fatal(err)) return; // rate limited: the rest waits for the next sync
+    } finally {
+      collected();
     }
   }
 }
@@ -482,7 +541,7 @@ async function runSync(db: DB, userId: number, deps: SyncDeps, step: (s: string)
   const followed = db
     .prepare(
       `SELECT r.node_id, r.meta_synced_at FROM user_repos ur JOIN repos r ON r.id = ur.repo_id
-       WHERE ur.user_id = ? AND ur.relation = 'followed' AND r.node_id IS NOT NULL`,
+       WHERE ur.user_id = ? AND ur.relation = 'followed' AND r.host = 'github' AND r.node_id IS NOT NULL`,
     )
     .all(userId) as Array<{ node_id: string; meta_synced_at: string | null }>;
   // another follower's sync may have refreshed a shared repo moments ago
@@ -504,10 +563,14 @@ async function runSync(db: DB, userId: number, deps: SyncDeps, step: (s: string)
     .all(userId) as Array<RepoRow & { link_can_push: number; link_relation: string }>;
 
   let done = 0;
-  await pool(work, config.sync.concurrency, async (repo) => {
+  const collected = () => step(`Collecting ${++done}/${work.length}`);
+  const onGitHub = work.filter((r) => r.host === 'github');
+  await pool(onGitHub, config.sync.concurrency, async (repo) => {
     await collectRepo(db, gh, repo, Boolean(repo.link_can_push) && repo.link_relation !== 'followed');
-    step(`Collecting ${++done}/${work.length}`);
+    collected();
   });
+  const onCodeberg = work.filter((r) => r.host === 'codeberg');
+  if (onCodeberg.length) await syncCodeberg(db, onCodeberg, new Codeberg(deps.fetchFn), collected);
 
   step('Finishing');
   detectEvents(db, userId);

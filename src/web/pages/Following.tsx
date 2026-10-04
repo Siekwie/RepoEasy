@@ -28,13 +28,13 @@ export function Following() {
     e.preventDefault();
     const parsed = parseRepoName(input);
     if (!parsed) {
-      setInputError('That does not look like a repository. Use owner/name or paste a github.com link.');
+      setInputError('That does not look like a repository. Use owner/name, or paste a github.com or codeberg.org link.');
       return;
     }
     setInputError(null);
     setAdding(true);
     try {
-      const r = await api.follow(`${parsed.owner}/${parsed.name}`);
+      const r = await api.follow(`${parsed.host === 'codeberg' ? 'codeberg.org/' : ''}${parsed.owner}/${parsed.name}`);
       repos.setData((prev) => [...(prev ?? []).filter((x) => x.id !== r.id), r]);
       setInput('');
       toast(`Now following ${r.fullName}`, 'success');
@@ -64,7 +64,7 @@ export function Following() {
     <>
       <PageHead
         title="Following"
-        sub="Track the public stats of any repository over time: stars, forks, issues and releases. No access to the repository is needed."
+        sub="Track the public stats of any repository on GitHub or Codeberg over time: stars, forks, issues and releases. No access to the repository is needed."
         actions={<UsageMeter kind="followed" variant="inline" />}
       />
       <form className="follow-form" onSubmit={(e) => void add(e)}>
@@ -80,7 +80,7 @@ export function Following() {
               setInput(e.target.value);
               setInputError(null);
             }}
-            placeholder="owner/name or https://github.com/owner/name"
+            placeholder="owner/name, or a github.com or codeberg.org link"
             autoComplete="off"
             spellCheck={false}
             aria-invalid={inputError ? true : undefined}

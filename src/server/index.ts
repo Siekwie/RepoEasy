@@ -36,7 +36,7 @@ if (existsSync(join(config.webDir, 'index.html'))) {
       `default-src 'self'`,
       `script-src 'self' ${inline.join(' ')}`.trim(),
       `style-src 'self' 'unsafe-inline'`,
-      `img-src 'self' data: ${new URL(config.baseUrl).origin} https://avatars.githubusercontent.com https://*.githubusercontent.com`,
+      `img-src 'self' data: ${new URL(config.baseUrl).origin} https://avatars.githubusercontent.com https://*.githubusercontent.com https://codeberg.org`,
       `connect-src 'self'`,
       `frame-ancestors 'none'`,
       `base-uri 'self'`,

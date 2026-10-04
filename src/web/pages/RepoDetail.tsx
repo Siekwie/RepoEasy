@@ -145,7 +145,7 @@ function RepoDetail({ id }: { id: number }) {
       </div>
 
       <div className="grid-2 grid-top">
-        <HealthCard health={d.health} />
+        <HealthCard health={d.health} host={d.host} />
         {d.canPush && <GithubEditor repo={d} onSaved={merge} />}
       </div>
 

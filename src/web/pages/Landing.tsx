@@ -169,7 +169,7 @@ const FEATURES: Array<{ title: string; body: string }> = [
   },
   {
     title: 'Follow any public repository',
-    body: "Track stars, forks, issues and releases for projects you don't own: a dependency, a competitor, or an idea you want to watch grow.",
+    body: "Track stars, forks, issues and releases for projects you don't own, on GitHub or Codeberg: a dependency, a competitor, or an idea you want to watch grow.",
   },
   {
     title: 'One view across all your repositories',

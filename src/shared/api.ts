@@ -101,6 +101,8 @@ export interface Me {
 }
 
 export type RepoRelation = 'owner' | 'collaborator' | 'org' | 'followed';
+/** Where a repository is hosted. Codeberg repositories can only be followed: Codeberg records no traffic. */
+export type RepoHost = 'github' | 'codeberg';
 export type CiState = 'SUCCESS' | 'FAILURE' | 'PENDING' | 'ERROR' | 'EXPECTED' | null;
 
 export interface TrafficTotals {
@@ -114,6 +116,7 @@ export interface TrafficTotals {
 /** One row of GET /api/repos */
 export interface RepoSummary {
   id: number;
+  host: RepoHost;
   fullName: string;
   owner: string;
   name: string;
@@ -442,7 +445,7 @@ for the GET endpoints: API tokens are read-only):
   POST   /api/sync                         → SyncStatus              (starts a sync; 429 if too soon)
   GET    /api/overview?range=              → Overview
   GET    /api/repos                        → RepoSummary[]
-  POST   /api/repos/follow  { fullName }   → RepoSummary             (accepts "owner/name" or a github.com URL)
+  POST   /api/repos/follow  { fullName }   → RepoSummary             (accepts "owner/name", a github.com or a codeberg.org URL)
   DELETE /api/repos/:id/follow             → { ok: true }
   PATCH  /api/repos/:id     RepoPatch      → RepoSummary
   PATCH  /api/repos/:id/github RepoGithubPatch → RepoSummary

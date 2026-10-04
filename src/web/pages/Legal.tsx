@@ -76,7 +76,7 @@ export function Imprint() {
           <h2>Consumer dispute resolution</h2>
           <p>We are neither willing nor obliged to take part in dispute resolution proceedings before a consumer arbitration board.</p>
           <h2>GitHub</h2>
-          <p>RepoEasy is an independent project. It is not affiliated with, endorsed by or sponsored by GitHub.</p>
+          <p>RepoEasy is an independent project. It is not affiliated with, endorsed by or sponsored by GitHub or Codeberg.</p>
         </>
       )}
     </LegalPage>
@@ -130,11 +130,11 @@ export function Privacy() {
           </p>
 
           <h2>Your repositories</h2>
-          <p>For the repositories your GitHub account can access, and the public repositories you choose to follow, the server stores:</p>
+          <p>For the repositories your GitHub account can access, and the public repositories on GitHub or Codeberg you choose to follow, the server stores:</p>
           <ul>
-            <li>name, description, topics, language, license and similar details shown on GitHub;</li>
+            <li>name, description, topics, language, license and similar details shown on GitHub or Codeberg;</li>
             <li>daily numbers: views, unique visitors, clones, referring sites, popular pages, stars, forks, open issues and pull requests, release downloads;</li>
-            <li>releases, and recent commits on the default branch: the first line of the message, the date, and the author's name, login and avatar as GitHub shows them.</li>
+            <li>releases, and recent commits on the default branch: the first line of the message, the date, and the author's name, login and avatar as GitHub or Codeberg shows them.</li>
           </ul>
           <p>
             No source code is read or stored. Private repositories stay private: only accounts that can access them on GitHub see them here. A public statistics page or badge
@@ -156,6 +156,10 @@ export function Privacy() {
           <ul>
             {op.hosting && <li>{op.hosting}, which runs the server on our behalf.</li>}
             <li>GitHub, which receives the requests made with your access token. The data comes from GitHub in the first place.</li>
+            <li>
+              Codeberg e.V., if you follow a repository hosted there: the server asks Codeberg for that repository's public numbers. Nothing about you is sent along, and
+              avatars of commit authors are then loaded from Codeberg's servers.
+            </li>
             {info.billing.enabled && (
               <li>Stripe, for payments. Stripe may process data in the United States under the EU-U.S. Data Privacy Framework and standard contractual clauses.</li>
             )}

@@ -141,6 +141,67 @@ describe('repos', () => {
     expect((await t.api('GET', `/api/repos/${id}`)).status).toBe(404);
   });
 
+  it('follows Codeberg repositories next to GitHub ones, without traffic or star history', async () => {
+    // same owner/name and the same numeric id as the GitHub repository: the two must not collide
+    const berg = {
+      id: 20, owner: 'vendor', name: 'tool', stars: 40,
+      releases: [{ id: 5, tag: 'v2.0', downloads: 7, publishedAt: '2026-03-01T01:30:00+02:00' }],
+      commits: [{ sha: 'c'.repeat(40), message: 'On Codeberg', date: '2026-03-01T01:30:00+02:00' }],
+    };
+    const t = setup([own], [publicRepo]);
+    t.state.codeberg = [berg];
+    await t.sync();
+    t.state.calls.length = 0;
+
+    const followed = await t.api('POST', '/api/repos/follow', { fullName: 'https://codeberg.org/vendor/tool' });
+    expect(followed.status).toBe(201);
+    expect(followed.data).toMatchObject({
+      host: 'codeberg', fullName: 'vendor/tool', htmlUrl: 'https://codeberg.org/vendor/tool', relation: 'followed',
+      stars: 40, language: 'Go', topics: ['forge'], ciState: 'SUCCESS', traffic14d: null,
+      latestRelease: { tag: 'v2.0', publishedAt: '2026-02-28T23:30:00Z' },
+      // Codeberg reports neither README nor license, so neither is held against the repository
+      health: { issues: [] },
+    });
+    const id = followed.data.id;
+
+    // releases and commits arrive in the background, with times in UTC and source archives counted as downloads
+    await vi.waitFor(async () => {
+      const detail = (await t.api('GET', `/api/repos/${id}`)).data;
+      expect(detail.releaseDownloads).toBe(7 + 1 + 2);
+      expect(detail.releases[0]).toMatchObject({ tag: 'v2.0', publishedAt: '2026-02-28T23:30:00Z' });
+      expect(detail.languages.map((l: any) => l.name)).toEqual(['Go', 'Shell']);
+      const commits = (await t.api('GET', `/api/repos/${id}/commits`)).data;
+      expect(commits[0]).toMatchObject({ message: 'On Codeberg', committedAt: '2026-02-28T23:30:00Z', authorLogin: 'berg' });
+    });
+    // GitHub was not involved, and nothing asked Codeberg for traffic or star dates
+    expect(t.state.calls.every((c) => c.startsWith('GET /api/v1/repos/vendor/tool'))).toBe(true);
+    expect(t.state.calls.some((c) => /traffic|stargazers/.test(c))).toBe(false);
+
+    const onGitHub = await t.api('POST', '/api/repos/follow', { fullName: 'vendor/tool' });
+    expect(onGitHub.data).toMatchObject({ host: 'github', stars: publicRepo.stars });
+    expect(onGitHub.data.id).not.toBe(id);
+    expect((await t.api('POST', '/api/repos/follow', { fullName: 'codeberg.org/vendor/tool' })).status).toBe(200);
+    expect((await t.api('POST', '/api/repos/follow', { fullName: 'codeberg.org/vendor/missing' })).data.error).toContain('not found on Codeberg');
+
+    // the account's sync refreshes it
+    berg.stars = 55;
+    t.age();
+    await t.sync();
+    expect((await t.api('GET', `/api/repos/${id}`)).data).toMatchObject({ stars: 55, starHistoryComplete: false });
+    expect((await t.api('GET', '/api/overview')).data).toMatchObject({ repoCount: 1, followedCount: 2, stars: 12 });
+
+    // Codeberg refusing requests leaves the sync and the archived numbers alone
+    t.state.codebergFails = 429;
+    t.age();
+    await t.sync();
+    const user = t.db.prepare('SELECT last_sync_error, token_invalid FROM users WHERE id = ?').get(t.userId);
+    expect(user).toEqual({ last_sync_error: null, token_invalid: 0 });
+    expect((await t.api('GET', `/api/repos/${id}`)).data.stars).toBe(55);
+
+    expect((await t.api('DELETE', `/api/repos/${id}/follow`)).status).toBe(200);
+    expect((await t.api('GET', '/api/repos')).data.map((r: any) => r.host)).toEqual(['github', 'github']);
+  });
+
   it('updates tags, notes and flags per user', async () => {
     const t = setup([own]);
     await t.sync();
