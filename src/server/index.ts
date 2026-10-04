@@ -82,6 +82,16 @@ if (config.localToken) {
   console.warn('[local] GITHUB_TOKEN is ignored because GitHub sign-in or billing is configured.');
 }
 
+if (config.billing.enabled) {
+  const missing = [
+    !config.billing.stripeWebhookSecret && 'STRIPE_WEBHOOK_SECRET',
+    !config.billing.priceMonthly && 'STRIPE_PRICE_MONTHLY',
+    !config.billing.priceYearly && 'STRIPE_PRICE_YEARLY',
+  ].filter(Boolean);
+  // without the webhook secret a paid checkout never upgrades the account
+  if (missing.length) console.warn(`[billing] Stripe is switched on but ${missing.join(', ')} is not set: upgrades will not work.`);
+}
+
 const stopScheduler = config.sync.disabled ? () => {} : startScheduler(db);
 
 const server = serve({ fetch: app.fetch, port: config.port, hostname: config.host }, (info) => {

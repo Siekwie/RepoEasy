@@ -20,7 +20,8 @@ export function Settings() {
     if (!b) return;
     if (b === 'success') {
       toast('Thanks. Your plan will update in a moment.', 'success');
-      void reloadMe();
+      // the webhook that upgrades the account can land a moment after the redirect
+      for (const ms of [0, 2000, 6000]) window.setTimeout(() => void reloadMe(), ms);
     }
     setSp(
       (prev) => {

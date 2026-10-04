@@ -47,8 +47,9 @@ export async function checkoutUrl(user: UserRow, interval: 'month' | 'year', fet
       mode: 'subscription',
       'line_items[0][price]': price,
       'line_items[0][quantity]': '1',
-      success_url: `${config.baseUrl}/settings?upgraded=1`,
-      cancel_url: `${config.baseUrl}/settings`,
+      // the settings page reacts to ?billing=success by refreshing the plan
+      success_url: `${config.baseUrl}/settings?billing=success`,
+      cancel_url: `${config.baseUrl}/settings?billing=cancelled`,
       client_reference_id: userRef(user),
       customer: user.stripe_customer_id ?? undefined,
       customer_email: user.stripe_customer_id ? undefined : (user.email ?? undefined),
