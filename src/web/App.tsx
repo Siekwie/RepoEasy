@@ -15,8 +15,12 @@ const RepoDetailPage = lazy(() => import('./pages/RepoDetail.tsx').then((m) => (
 const Following = lazy(() => import('./pages/Following.tsx').then((m) => ({ default: m.Following })));
 const Activity = lazy(() => import('./pages/Activity.tsx').then((m) => ({ default: m.Activity })));
 const Settings = lazy(() => import('./pages/Settings.tsx').then((m) => ({ default: m.Settings })));
+const Admin = lazy(() => import('./pages/Admin.tsx').then((m) => ({ default: m.Admin })));
 const NotFound = lazy(() => import('./pages/NotFound.tsx').then((m) => ({ default: m.NotFound })));
 const PublicShare = lazy(() => import('./pages/PublicShare.tsx').then((m) => ({ default: m.PublicShare })));
+const Imprint = lazy(() => import('./pages/Legal.tsx').then((m) => ({ default: m.Imprint })));
+const Privacy = lazy(() => import('./pages/Legal.tsx').then((m) => ({ default: m.Privacy })));
+const Terms = lazy(() => import('./pages/Legal.tsx').then((m) => ({ default: m.Terms })));
 
 function ScrollTop() {
   const { pathname } = useLocation();
@@ -66,6 +70,9 @@ function Routed({ me }: { me: Me | null }) {
         <Suspense fallback={<BootScreen />}>
           <Routes>
             <Route path="/s/:owner/:repo" element={<PublicShare />} />
+            <Route path="/imprint" element={<Imprint />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
             {me ? (
               <Route element={<Shell />}>
                 <Route index element={<Overview />} />
@@ -74,6 +81,7 @@ function Routed({ me }: { me: Me | null }) {
                 <Route path="following" element={<Following />} />
                 <Route path="activity" element={<Activity />} />
                 <Route path="settings" element={<Settings />} />
+                <Route path="admin" element={<Admin />} />
                 <Route path="*" element={<NotFound />} />
               </Route>
             ) : (

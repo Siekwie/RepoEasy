@@ -208,7 +208,7 @@ export function seedDemo(db: DB): void {
       }
     });
 
-    const repoIdOf = (name: string) => (db.prepare('SELECT id FROM repos WHERE full_name = ?').get(name) as { id: number }).id;
+    const repoIdOf = (name: string) => (db.prepare('SELECT id FROM repos WHERE full_name = ? AND github_id < 0').get(name) as { id: number }).id;
     const tinycache = repoIdOf(`${DEMO_LOGIN}/tinycache`);
     const pgdiff = repoIdOf(`${DEMO_LOGIN}/pgdiff`);
     recordEvent(db, userId, { kind: 'star-milestone', repoId: tinycache, title: `${DEMO_LOGIN}/tinycache reached 1,000 stars`, detail: 'Now at 1,284.', url: null, dedupeKey: 'demo:1' });

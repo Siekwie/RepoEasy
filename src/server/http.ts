@@ -92,6 +92,11 @@ export const requireUser =
       if (!readOnly) return fail('forbidden', 'API tokens are read-only.');
       if (!planLimits(effectivePlan(auth.user)).apiTokens) return fail('plan-limit', 'API access is part of the Pro plan.');
     }
+    const seen = auth.user.last_seen_at ? Date.parse(auth.user.last_seen_at) : 0;
+    // hourly is precise enough for "active this week" and keeps most reads from writing
+    if (!auth.user.is_demo && Date.now() - seen > 3_600_000) {
+      db.prepare('UPDATE users SET last_seen_at = ? WHERE id = ?').run(nowIso(), auth.user.id);
+    }
     c.set('user', auth.user);
     c.set('viaToken', auth.viaToken);
     await next();

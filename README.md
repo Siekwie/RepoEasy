@@ -1,5 +1,10 @@
 # RepoEasy
 
+[![CI](https://github.com/Siekwie/RepoEasy/actions/workflows/ci.yml/badge.svg)](https://github.com/Siekwie/RepoEasy/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-0b6b63.svg)](LICENSE)
+
+**Hosted version with a live demo: [repoeasy.wiest-lab.eu](https://repoeasy.wiest-lab.eu/?ref=github)**
+
 GitHub only keeps 14 days of traffic for a repository. RepoEasy signs in with GitHub, archives that
 traffic every day, and keeps it for good, so you get lifetime views, visitors, clones, referrers and
 popular pages for every repository you can push to, private ones included. It also records stars,
@@ -8,6 +13,18 @@ started, and lets you follow any public repository to watch its numbers over tim
 
 One small Node process, one SQLite file. Run it for yourself, or host it for others with plans and
 Stripe billing.
+
+![The overview: lifetime and recent traffic across all repositories](docs/screenshots/overview.png)
+
+![A repository page: stars, forks, releases, views and clones over time](docs/screenshots/repo.png)
+
+## Hosted version
+
+[repoeasy.wiest-lab.eu](https://repoeasy.wiest-lab.eu/?ref=github) runs this code. Sign in with GitHub, or
+open the demo first to look around without an account. The free plan archives traffic for 3
+repositories and follows 10 public ones, with the full history kept. Pro is €1.50 a month or €12 a
+year: unlimited tracked repositories, sync every 6 hours, API tokens, webhook alerts, public share
+pages and README badges. Self-hosting has everything unlocked.
 
 ## What it does
 
@@ -144,7 +161,7 @@ the free plan is trimmed to the free limits at its next sync.
 
 Default plans, all adjustable through the environment:
 
-| | Free | Pro ($3 / month, $29 / year) |
+| | Free | Pro |
 |---|---|---|
 | Tracked repositories (traffic archive) | 3 | unlimited |
 | Followed public repositories | 10 | 100 |
@@ -153,8 +170,31 @@ Default plans, all adjustable through the environment:
 | CSV / JSON export | yes | yes |
 | API tokens, webhook alerts, share pages and badges | no | yes |
 
+The price itself lives in Stripe; `PRICE_DISPLAY_MONTHLY` and `PRICE_DISPLAY_YEARLY` are what the
+pages show (default `$3` and `$29`).
+
 Without billing every account has everything. `ADMIN_LOGINS` (GitHub logins or, better, numeric
 user ids) unlocks everything for those accounts on a hosted instance. `DEMO=1` adds a read-only demo account with sample data to the sign-in page.
+
+### Admin page
+
+Accounts in `ADMIN_LOGINS` get an Admin page: accounts (total, new, active, free and Pro), tracked
+and followed repositories, share pages, accounts whose sync is failing, and a funnel of the last 30
+days: start page views, demo opened, sign-ins started, new accounts, per day and per source.
+
+The funnel is counted by the server itself. A view of the start page adds one to a counter for that
+day and source, where the source is the `?ref=` tag of the link (`https://stats.example.com/?ref=dev.to`)
+or, without one, the hostname of the referring site. No cookie, no visitor id and no address is
+stored, so the numbers count events, not people.
+
+### Imprint, privacy and terms
+
+Set `OPERATOR_NAME` and `OPERATOR_ADDRESS` (lines separated by `;`) and the instance gets
+`/imprint`, `/privacy` and `/terms` pages, linked from every footer. `OPERATOR_EMAIL` is the contact
+address shown on them, `OPERATOR_HOSTING` names the hosting provider on the privacy page, and
+`OPERATOR_LINKS` (`Label=https://...`, comma-separated) adds your own links to the footer. The texts
+describe what RepoEasy stores and the setup in `deploy/` (no access log, daily snapshots); they are
+written for an operator in Germany and are not legal advice. Read them before you rely on them.
 
 Cost: a sync is about one GraphQL call per 15 repositories plus four to six REST calls per tracked
 repository, all made with the user's own GitHub token and rate limit, three accounts at a time
@@ -203,6 +243,10 @@ Setting `DEMO=1` and `SYNC_DISABLED=1` in `.env` gives a server with sample data
   the repository does.
 - If GitHub access is revoked, private repositories are hidden from that account until it signs in
   again. A followed repository that turns private is dropped from its followers.
+
+## License
+
+[MIT](LICENSE)
 
 ## Known limits
 

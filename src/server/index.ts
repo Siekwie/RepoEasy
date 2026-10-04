@@ -24,7 +24,8 @@ if (existsSync(join(config.webDir, 'index.html'))) {
     if (c.res.status === 200) c.header('Cache-Control', 'public, max-age=31536000, immutable');
   });
   // index.html is read per request so a rebuilt web app is picked up without a restart
-  const page = () => readFileSync(join(config.webDir, 'index.html'), 'utf8');
+  // BASE_URL is filled in here because link previews (og:image, og:url) need absolute addresses
+  const page = () => readFileSync(join(config.webDir, 'index.html'), 'utf8').replaceAll('__ORIGIN__', config.baseUrl);
   const contentSecurityPolicy = (html: string) => {
     // the page's own inline scripts (theme bootstrap) are allowed by hash, nothing else inline is
     const inline = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
@@ -47,6 +48,8 @@ if (existsSync(join(config.webDir, 'index.html'))) {
       c.header('Content-Security-Policy', contentSecurityPolicy(page()));
     }
   });
+  // "/" is answered here, not by the static handler, which would send index.html as it is on disk
+  app.get('/', (c) => c.html(page()));
   app.use('*', serveStatic({ root }));
   // a missing hashed asset must be a 404, never the app shell cached as that asset
   app.get('/assets/*', (c) => c.notFound());

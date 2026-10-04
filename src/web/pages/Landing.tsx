@@ -1,9 +1,11 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import type { AppInfo, PlanLimits } from '../../shared/api.ts';
 import { useApp } from '../context.tsx';
 import { api } from '../lib/api.ts';
 import { useTitle } from '../lib/hooks.ts';
+import { landingSource } from '../lib/visit.ts';
 import { Icon, Logo } from '../components/Icon.tsx';
+import { SiteLinks, SOURCE_URL } from '../components/SiteLinks.tsx';
 import { ThemeToggle } from '../components/ui.tsx';
 
 /** Deterministic pseudo-random so the illustration is stable between renders. */
@@ -74,7 +76,8 @@ function HeroChart() {
   );
 }
 
-function SignIn({ info }: { info: AppInfo }) {
+/** `source`: where this visitor came from, passed along so a new account can be credited to it. */
+function SignIn({ info, source }: { info: AppInfo; source: string }) {
   const { reloadMe } = useApp();
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState<'local' | 'demo' | null>(null);
@@ -98,7 +101,7 @@ function SignIn({ info }: { info: AppInfo }) {
     setBusy('demo');
     setError(null);
     try {
-      await api.authDemo();
+      await api.authDemo(source);
       await reloadMe();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start the demo.');
@@ -118,7 +121,7 @@ function SignIn({ info }: { info: AppInfo }) {
   return (
     <div className="signin" id="signin">
       {github && (
-        <a className="btn btn-primary btn-lg" href="/auth/github">
+        <a className="btn btn-primary btn-lg" rel="nofollow" href={`/auth/github${source ? `?src=${encodeURIComponent(source)}` : ''}`}>
           <Icon name="github" size={18} /> Sign in with GitHub
         </a>
       )}
@@ -144,6 +147,15 @@ function SignIn({ info }: { info: AppInfo }) {
       {error && (
         <p className="form-error" role="alert">
           {error}
+        </p>
+      )}
+      {github && (
+        <p className="muted small signin-note">
+          GitHub will ask for access to your repositories, because it has no narrower permission that includes traffic numbers. RepoEasy only reads them, and{' '}
+          <a href={SOURCE_URL} target="_blank" rel="noreferrer">
+            the code is open source
+          </a>
+          .
         </p>
       )}
     </div>
@@ -229,8 +241,18 @@ function Pricing({ info }: { info: AppInfo }) {
 }
 
 export function Landing() {
-  useTitle('');
+  useTitle('GitHub traffic history beyond 14 days');
   const { info } = useApp();
+  const [source, setSource] = useState('');
+  useEffect(() => {
+    let live = true;
+    void landingSource().then((s) => {
+      if (live) setSource(s);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   return (
     <div className="landing">
       <header className="land-top">
@@ -255,7 +277,7 @@ export function Landing() {
               Sign in once and RepoEasy archives views, visitors, clones, referrers and stars for your repositories every day. Months later you can still answer "did that
               launch actually work?"
             </p>
-            <SignIn info={info} />
+            <SignIn info={info} source={source} />
           </div>
           <HeroChart />
         </section>
@@ -275,8 +297,10 @@ export function Landing() {
         {info.billing.enabled && <Pricing info={info} />}
       </main>
       <footer className="land-foot">
-        <span>RepoEasy {info.version}</span>
-        <span className="muted">Not affiliated with GitHub.</span>
+        <span>
+          RepoEasy {info.version} <span className="muted">· Not affiliated with GitHub.</span>
+        </span>
+        <SiteLinks />
       </footer>
     </div>
   );

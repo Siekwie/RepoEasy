@@ -1,4 +1,5 @@
 import type {
+  AdminStats,
   ApiError,
   ApiToken,
   ApiTokenCreated,
@@ -106,7 +107,9 @@ export const api = {
   portal: () => send<{ url: string }>('POST', '/api/billing/portal'),
   publicRepo: (owner: string, repo: string) => get<PublicRepoStats>(`/api/public/${enc(owner)}/${enc(repo)}`),
   authLocal: (password?: string) => send<{ ok: true }>('POST', '/auth/local', password ? { password } : {}),
-  authDemo: () => send<{ ok: true }>('POST', '/auth/demo'),
+  authDemo: (src: string) => send<{ ok: true }>('POST', '/auth/demo', { src }),
+  hit: (ref: string, referrer: string) => send<{ source: string }>('POST', '/api/hit', { ref, referrer }),
+  adminStats: () => get<AdminStats>('/api/admin/stats'),
   logout: () => send<{ ok: true }>('POST', '/auth/logout'),
 };
 

@@ -21,6 +21,7 @@ const limit = (key: string, fallback: number) => {
   const n = int(key, fallback);
   return n > 0 ? n : null;
 };
+const list = (key: string, separator: string) => (str(key) ?? '').split(separator).map((s) => s.trim()).filter(Boolean);
 
 export const VERSION = '0.1.0';
 
@@ -85,10 +86,27 @@ export const config = {
   exposed: !local || !LOOPBACK.includes(host),
   demo: flag('DEMO'),
   /** Comma-separated GitHub logins or numeric user ids that always get every feature on a hosted instance. */
-  adminLogins: (str('ADMIN_LOGINS') ?? '')
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean),
+  adminLogins: list('ADMIN_LOGINS', ',').map((s) => s.toLowerCase()),
+
+  /**
+   * Who runs this instance. With a name and an address the imprint, privacy and terms pages are
+   * shown; an instance run for one person leaves these unset.
+   */
+  operator: {
+    name: str('OPERATOR_NAME'),
+    /** Postal address, lines separated by ";". */
+    address: list('OPERATOR_ADDRESS', ';'),
+    email: str('OPERATOR_EMAIL'),
+    /** Hosting provider named on the privacy page, e.g. "Hetzner Online GmbH, Germany". */
+    hosting: str('OPERATOR_HOSTING'),
+    /** Footer links as "Label=https://...", comma-separated. */
+    links: list('OPERATOR_LINKS', ',').flatMap((entry) => {
+      const at = entry.indexOf('=');
+      const label = entry.slice(0, at).trim();
+      const url = entry.slice(at + 1).trim();
+      return at > 0 && label && /^https?:\/\//i.test(url) ? [{ label, url }] : [];
+    }),
+  },
 
   sync: {
     /** Disable the background scheduler (tests, one-off scripts). */
@@ -155,14 +173,19 @@ export function planLimits(plan: Plan): PlanLimits {
   return limits[plan];
 }
 
+/** Listed in ADMIN_LOGINS: every feature on a hosted instance, and the admin page. */
+export function isAdmin(user: { login: string; github_id: number | null }): boolean {
+  // ids are safer than logins, which can be renamed and re-registered by someone else
+  return config.adminLogins.includes(user.login.toLowerCase()) || (user.github_id !== null && config.adminLogins.includes(String(user.github_id)));
+}
+
 /**
  * The plan a user effectively has. Without billing configured every account is
  * `selfhost` (everything unlocked); admins are unlocked on hosted instances too.
  */
 export function effectivePlan(user: { login: string; github_id: number | null; plan: string; plan_expires_at: string | null }): Plan {
   if (!config.billing.enabled) return 'selfhost';
-  // ids are safer than logins, which can be renamed and re-registered by someone else
-  if (config.adminLogins.includes(user.login.toLowerCase()) || config.adminLogins.includes(String(user.github_id))) return 'selfhost';
+  if (isAdmin(user)) return 'selfhost';
   // plan_expires_at is the paid-through date; a few days of grace cover late renewal webhooks
   const grace = 3 * 86_400_000;
   if (user.plan === 'pro' && (!user.plan_expires_at || Date.parse(user.plan_expires_at) + grace > Date.now())) {

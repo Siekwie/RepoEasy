@@ -45,6 +45,21 @@ export interface AppInfo {
     proYearly: string;
   };
   limits: { free: PlanLimits; pro: PlanLimits };
+  /** Who runs this instance. Null on an instance without one configured: no imprint, privacy or terms pages then. */
+  operator: Operator | null;
+  /** Footer links chosen by the operator (their blog, social accounts). */
+  links: Array<{ label: string; url: string }>;
+}
+
+export interface Operator {
+  name: string;
+  /** Postal address, one entry per line. */
+  address: string[];
+  email: string | null;
+  /** Hosting provider, as named on the privacy page. */
+  hosting: string | null;
+  /** Days a deleted account can remain in database snapshots; 0 when snapshots are off. */
+  backupDays: number;
 }
 
 export interface UserSettings {
@@ -76,6 +91,8 @@ export interface Me {
   plan: Plan;
   /** Demo accounts are read-only: every mutation returns 403. */
   isDemo: boolean;
+  /** Listed in ADMIN_LOGINS: may open the admin page. */
+  isAdmin: boolean;
   limits: PlanLimits;
   usage: { tracked: number; followed: number };
   settings: UserSettings;
@@ -344,6 +361,58 @@ export interface RepoGithubPatch {
   topics?: string[];
 }
 
+/** Counts of one step each: landing page opened, sign-in started, demo opened, account created. */
+export interface VisitFunnel {
+  landing: number;
+  signin: number;
+  demo: number;
+  signup: number;
+}
+
+export interface AdminUser {
+  id: number;
+  login: string;
+  avatarUrl: string | null;
+  plan: Plan | 'admin';
+  createdAt: string;
+  lastSeenAt: string | null;
+  lastSyncAt: string | null;
+  /** Why this account is not syncing, if it is not. */
+  problem: string | null;
+  tracked: number;
+  followed: number;
+  /** `?ref=` tag or referring site the account signed up from; '' = direct, null = unknown. */
+  source: string | null;
+}
+
+/** GET /api/admin/stats (accounts in ADMIN_LOGINS only; 404 for everyone else). The demo account is left out. */
+export interface AdminStats {
+  generatedAt: string;
+  accounts: {
+    total: number;
+    new7d: number;
+    new30d: number;
+    /** Used the app or the API in the last 7 days. */
+    active7d: number;
+    pro: number;
+    free: number;
+    /** Accounts whose last sync failed or whose GitHub access is gone. */
+    problems: number;
+  };
+  repos: { tracked: number; followed: number; shared: number };
+  funnel: {
+    /** Length of the period the funnel covers. */
+    days: number;
+    totals: VisitFunnel;
+    /** One entry per UTC day, oldest first, zero-filled. */
+    daily: Array<VisitFunnel & { day: Day }>;
+    /** '' is a direct visit. */
+    sources: Array<VisitFunnel & { source: string }>;
+  };
+  /** Newest first, at most 200. */
+  users: AdminUser[];
+}
+
 /** Every non-2xx JSON response. `code` is stable, `error` is for display. */
 export interface ApiError {
   error: string;
@@ -364,6 +433,8 @@ Endpoint list (all JSON unless noted; auth = session cookie, or `Authorization: 
 for the GET endpoints: API tokens are read-only):
 
   GET    /api/info                         → AppInfo                 (no auth)
+  POST   /api/hit           { ref?, referrer? } → { source }         (no auth; counts one landing-page view)
+  GET    /api/admin/stats                  → AdminStats              (ADMIN_LOGINS only)
   GET    /api/me                           → Me                      (401 when signed out)
   PATCH  /api/me/settings   Partial<UserSettings> → Me
   DELETE /api/me                           → { ok: true }            (deletes account + data)
@@ -393,8 +464,8 @@ for the GET endpoints: API tokens are read-only):
   GET    /api/public/:owner/:repo          → PublicRepoStats         (no auth)
   GET    /badge/:owner/:repo/:metric.svg   → image/svg+xml           (no auth)
 
-  GET    /auth/github                      → 302 to GitHub           (full-page navigation)
+  GET    /auth/github?src=                 → 302 to GitHub           (full-page navigation)
   POST   /auth/local        { password? }  → { ok: true }
-  POST   /auth/demo                        → { ok: true }
+  POST   /auth/demo         { src? }       → { ok: true }
   POST   /auth/logout                      → { ok: true }
 */

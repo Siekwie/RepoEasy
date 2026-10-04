@@ -12,9 +12,10 @@ import type {
   UserSettings,
 } from '../shared/api.ts';
 import { parseRepoName } from '../shared/repo-input.ts';
+import { adminStats } from './admin.ts';
 import { BADGE_METRICS, badgeSvg, repoBadge } from './badges.ts';
 import { applyStripeEvent, cancelSubscription, checkoutUrl, portalUrl, verifyStripeSignature } from './billing.ts';
-import { config, effectivePlan, planLimits, VERSION } from './config.ts';
+import { config, effectivePlan, isAdmin, planLimits, VERSION } from './config.ts';
 import { randomToken, safeEqual, sha256 } from './crypto.ts';
 import { nowIso, type DB, type RepoRow, type UserRow } from './db.ts';
 import { checkWebhookUrl } from './events.ts';
@@ -36,6 +37,7 @@ import {
 import * as q from './queries.ts';
 import { collectRepo, syncUser, upsertRepo, userSettings } from './sync.ts';
 import { accessToken, exchangeCode, upsertUser } from './tokens.ts';
+import { hitAllowed, recordVisit, rememberSource, takeSource, visitSource } from './visits.ts';
 
 export interface AppDeps {
   /** GitHub client for a user; replaced in tests. */
@@ -133,8 +135,27 @@ export function createApp(db: DB, deps: AppDeps = {}) {
         proYearly: config.billing.displayYearly,
       },
       limits: { free: planLimits('free'), pro: planLimits('pro') },
+      operator:
+        config.operator.name && config.operator.address.length
+          ? {
+              name: config.operator.name,
+              address: config.operator.address,
+              email: config.operator.email,
+              hosting: config.operator.hosting,
+              backupDays: Math.ceil((config.backup.intervalHours * config.backup.keep) / 24),
+            }
+          : null,
+      links: config.operator.links,
     }),
   );
+
+  // One landing-page view. The address is only used to cap what one caller can add and is not stored.
+  app.post('/api/hit', async (c) => {
+    const { ref, referrer } = await body<{ ref: string; referrer: string }>(c);
+    const source = visitSource(ref, referrer);
+    if (hitAllowed(clientAddress(c))) recordVisit(db, 'landing', source);
+    return c.json({ source });
+  });
 
   app.get('/api/public/:owner/:repo', (c) => {
     const stats = q.publicStats(db, c.req.param('owner'), c.req.param('repo'));
@@ -168,6 +189,9 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     url.searchParams.set('redirect_uri', `${config.baseUrl}/auth/github/callback`);
     url.searchParams.set('scope', config.github.scopes);
     url.searchParams.set('state', state);
+    const source = visitSource(c.req.query('src'), null);
+    rememberSource(state, source);
+    recordVisit(db, 'signin', source);
     return c.redirect(url.toString());
   });
 
@@ -179,7 +203,13 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     try {
       const tokens = await exchangeCode(code, deps.fetchFn);
       const profile = await fetchViewer(new GitHub(tokens.accessToken, deps.fetchFn));
+      const source = takeSource(state);
+      const isNew = !db.prepare('SELECT 1 FROM users WHERE github_id = ?').get(profile.id);
       const userId = upsertUser(db, profile, tokens);
+      if (isNew) {
+        db.prepare('UPDATE users SET signup_source = ? WHERE id = ?').run(source, userId);
+        recordVisit(db, 'signup', source);
+      }
       createSession(c, db, userId);
       void syncUser(db, userId, { fetchFn: deps.fetchFn });
       return c.redirect('/');
@@ -212,9 +242,11 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     return c.json({ ok: true });
   });
 
-  app.post('/auth/demo', (c) => {
+  app.post('/auth/demo', async (c) => {
     const demo = db.prepare('SELECT id FROM users WHERE is_demo = 1 LIMIT 1').get() as { id: number } | undefined;
     if (!config.demo || !demo) return fail('not-found', 'The demo is not enabled.');
+    const sent = (await c.req.json().catch(() => null)) as { src?: unknown } | null;
+    recordVisit(db, 'demo', visitSource(sent?.src, null));
     // anyone can call this, so demo sessions are short-lived and capped
     db.prepare(
       'DELETE FROM sessions WHERE user_id = ? AND id NOT IN (SELECT id FROM sessions WHERE user_id = ? ORDER BY created_at DESC LIMIT 2000)',
@@ -610,6 +642,14 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     } catch (err) {
       return fail('bad-request', err instanceof Error ? err.message : 'Could not open the billing portal.');
     }
+  });
+
+  // ---- Admin ----
+
+  app.get('/api/admin/stats', (c) => {
+    // to everyone else this endpoint does not exist
+    if (c.var.user.is_demo || !isAdmin(c.var.user)) return fail('not-found', 'Unknown API endpoint.');
+    return c.json(adminStats(db));
   });
 
   app.all('/api/*', () => fail('not-found', 'Unknown API endpoint.'));

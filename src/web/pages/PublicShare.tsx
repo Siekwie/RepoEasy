@@ -7,6 +7,7 @@ import { useFetch, useTitle } from '../lib/hooks.ts';
 import { metricPoints, trafficSeries } from '../lib/series.ts';
 import { BarList, Chart } from '../components/charts.tsx';
 import { Icon, Logo } from '../components/Icon.tsx';
+import { SiteLinks } from '../components/SiteLinks.tsx';
 import { Card, ErrorBox, LangDot, Skeleton, ThemeToggle, Tile } from '../components/ui.tsx';
 
 export function PublicShare() {
@@ -114,7 +115,7 @@ export function PublicShare() {
         <Link to="/">
           <Logo size={18} /> Tracked with RepoEasy
         </Link>
-        <span className="muted">Lifetime GitHub traffic, archived daily.</span>
+        <SiteLinks />
       </footer>
     </div>
   );

@@ -2,6 +2,7 @@
   "name": "repoeasy",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Lifetime GitHub repo analytics: archive traffic past the 14-day window, track stars/forks/downloads, follow any public repo.",
   "type": "module",
   "engines": {

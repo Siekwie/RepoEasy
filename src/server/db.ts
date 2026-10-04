@@ -211,6 +211,20 @@ const migrations: string[] = [
   CREATE INDEX events_repo ON events(repo_id);
   CREATE INDEX api_tokens_user ON api_tokens(user_id);
   `,
+  `
+  -- Counters for the admin page: how often the landing page was opened, sign-in was started, the
+  -- demo was opened and an account was created, per UTC day and source. Nothing about the visitor.
+  CREATE TABLE visits (
+    day TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    source TEXT NOT NULL,
+    count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (day, kind, source)
+  ) WITHOUT ROWID;
+
+  ALTER TABLE users ADD COLUMN signup_source TEXT;
+  ALTER TABLE users ADD COLUMN last_seen_at TEXT;
+  `,
 ];
 
 export function openDb(path: string): DB {
@@ -263,6 +277,8 @@ export interface UserRow {
   last_sync_started_at: string | null;
   last_sync_error: string | null;
   rate_remaining: number | null;
+  signup_source: string | null;
+  last_seen_at: string | null;
 }
 
 export interface RepoRow {

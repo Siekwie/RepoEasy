@@ -2065,6 +2065,63 @@ th.r .th-btn {
   gap: 8px;
   font-weight: 600;
 }
+.site-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
+.public-foot .site-links a {
+  font-weight: 400;
+}
+.app-foot {
+  margin-top: 32px;
+  font-size: 12.5px;
+}
+.app-foot a {
+  color: var(--ink-3);
+}
+.admin-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+
+/* ===== Legal pages ===== */
+.legal {
+  line-height: 1.6;
+}
+.legal > * {
+  max-width: 760px;
+}
+.legal h1 {
+  font-family: var(--font-serif);
+  font-size: 34px;
+  margin-bottom: 14px;
+}
+.legal h2 {
+  font-size: 17px;
+  margin: 26px 0 6px;
+}
+.legal p,
+.legal ul,
+.legal address {
+  margin-bottom: 10px;
+}
+.legal address {
+  font-style: normal;
+}
+.legal ul {
+  padding-left: 20px;
+  list-style: disc;
+}
+.legal li + li {
+  margin-top: 6px;
+}
+.legal code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
 
 /* ===== Landing ===== */
 .landing {
@@ -2111,6 +2168,9 @@ th.r .th-btn {
 }
 .signin .btn-lg {
   min-width: 260px;
+}
+.signin-note {
+  max-width: 46ch;
 }
 .signin-local {
   display: flex;

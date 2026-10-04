@@ -4,6 +4,7 @@ import { useApp } from '../context.tsx';
 import { fmtDateTime, relative } from '../lib/format.ts';
 import { useInterval } from '../lib/hooks.ts';
 import { Icon, Logo, type IconName } from './Icon.tsx';
+import { SiteLinks } from './SiteLinks.tsx';
 import { Avatar, PlanBadge, Skeleton, ThemeToggle, UsageMeter } from './ui.tsx';
 
 const NAV: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
@@ -13,6 +14,7 @@ const NAV: Array<{ to: string; label: string; icon: IconName; end?: boolean }> =
   { to: '/activity', label: 'Activity', icon: 'activity' },
   { to: '/settings', label: 'Settings', icon: 'settings' },
 ];
+const ADMIN_NAV: (typeof NAV)[number] = { to: '/admin', label: 'Admin', icon: 'trend' };
 
 function SyncControl() {
   const { sync, startSync } = useApp();
@@ -63,7 +65,7 @@ export function Shell() {
           <span>RepoEasy</span>
         </Link>
         <nav className="nav" aria-label="Main">
-          {NAV.map((n) => (
+          {(me.isAdmin ? [...NAV, ADMIN_NAV] : NAV).map((n) => (
             <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? 'active' : '')}>
               <Icon name={n.icon} size={18} />
               <span>{n.label}</span>
@@ -116,6 +118,11 @@ export function Shell() {
           >
             <Outlet />
           </Suspense>
+          {info.operator && (
+            <footer className="app-foot">
+              <SiteLinks />
+            </footer>
+          )}
         </main>
       </div>
     </div>
