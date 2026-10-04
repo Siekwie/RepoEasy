@@ -1,0 +1,15 @@
+services:
+  repoeasy:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+    volumes:
+      - repoeasy-data:/data
+
+volumes:
+  repoeasy-data:
