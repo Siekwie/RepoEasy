@@ -28,8 +28,9 @@ if (existsSync(join(config.webDir, 'index.html'))) {
   const page = () => readFileSync(join(config.webDir, 'index.html'), 'utf8').replaceAll('__ORIGIN__', config.baseUrl);
   const contentSecurityPolicy = (html: string) => {
     // the page's own inline scripts (theme bootstrap) are allowed by hash, nothing else inline is
+    // browsers turn CRLF into LF before hashing, and a Windows checkout ships CRLF
     const inline = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
-      (m) => `'sha256-${createHash('sha256').update(m[1]!).digest('base64')}'`,
+      (m) => `'sha256-${createHash('sha256').update(m[1]!.replace(/\r\n?/g, '\n')).digest('base64')}'`,
     );
     return [
       `default-src 'self'`,
