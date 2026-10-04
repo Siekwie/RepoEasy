@@ -1,5 +1,5 @@
 import type { MetricPoint, TrafficPoint } from '../../shared/api.ts';
-import type { ChartPoint, ChartSeries } from '../components/charts.tsx';
+import type { ChartPoint, ChartSeries } from './chart-math.ts';
 
 export function cumulative(pts: ChartPoint[]): ChartPoint[] {
   let sum = 0;

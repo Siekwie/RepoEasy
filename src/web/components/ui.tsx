@@ -1,7 +1,10 @@
 import { useState, type ReactNode } from 'react';
 import type { Plan } from '../../shared/api.ts';
 import { useApp } from '../context.tsx';
+import { download } from '../lib/api.ts';
 import { compact, exact, pctChange, signed } from '../lib/format.ts';
+import type { FetchState } from '../lib/hooks.ts';
+import { saveBlob } from '../lib/save-blob.ts';
 import { Icon } from './Icon.tsx';
 
 export function Num({ v, className }: { v: number | null | undefined; className?: string }) {
@@ -16,7 +19,7 @@ export function Num({ v, className }: { v: number | null | undefined; className?
 export function SignedDelta({ value, suffix }: { value: number; suffix?: string }) {
   const dir = value > 0 ? 'up' : value < 0 ? 'down' : 'flat';
   return (
-    <span className={`delta delta-${dir}`} title={`${value > 0 ? '+' : ''}${exact(value)}${suffix ? ' ' + suffix : ''}`}>
+    <span className={`delta delta-${dir}`} title={`${value > 0 ? '+' : ''}${exact(value)}${suffix ? ` ${suffix}` : ''}`}>
       {dir !== 'flat' && <span aria-hidden="true">{dir === 'up' ? '▲' : '▼'}</span>}
       {signed(value)}
       {suffix ? <span className="delta-suffix"> {suffix}</span> : null}
@@ -45,12 +48,21 @@ export function PctDelta({ cur, prev, label }: { cur: number; prev: number | nul
   );
 }
 
-export function Tile(props: { label: string; value: number | null | undefined; sub?: ReactNode; icon?: ReactNode }) {
+export function Tile(props: { label: string; value: number | null | undefined; sub?: ReactNode; icon?: ReactNode; hint?: string }) {
   return (
     <div className="tile">
       <div className="tile-label">
         {props.icon}
-        {props.label}
+        {props.hint ? (
+          <>
+            <span className="has-hint" title={props.hint}>
+              {props.label}
+            </span>
+            <span className="sr-only">. {props.hint}</span>
+          </>
+        ) : (
+          props.label
+        )}
       </div>
       <div className="tile-value">
         <Num v={props.value} />
@@ -84,6 +96,7 @@ export function Switch(props: { checked: boolean; onChange: (v: boolean) => void
       <input
         type="checkbox"
         role="switch"
+        aria-checked={props.checked}
         checked={props.checked}
         disabled={props.disabled || props.busy}
         onChange={(e) => props.onChange(e.target.checked)}
@@ -136,20 +149,37 @@ export function Skeleton({ height = 120 }: { height?: number }) {
   return <div className="skeleton" style={{ height }} aria-hidden="true" />;
 }
 
-export function ErrorBox({ error, onRetry }: { error: Error; onRetry?: () => void }) {
+export function ErrorBox({ error, onRetry, stale }: { error: Error; onRetry?: () => void; stale?: boolean }) {
   return (
-    <div className="state state-error" role="alert">
+    <div className={`state state-error ${stale ? 'state-stale' : ''}`} role="alert">
       <Icon name="warn" size={20} />
       <div>
-        <strong>That didn't load.</strong>
-        <p>{error.message}</p>
+        <strong>{stale ? "Couldn't refresh this." : "That didn't load."}</strong>
+        <p>
+          {error.message}
+          {stale ? ' What you see below may be out of date.' : ''}
+        </p>
         {onRetry && (
-          <button className="btn btn-sm" onClick={onRetry}>
+          <button type="button" className="btn btn-sm" onClick={onRetry}>
             Try again
           </button>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Renders a fetch: skeleton while there is no data for the current key, the error (with retry) when it
+ * failed, and, when a refetch failed but the same key still has data, that data under a stale-warning.
+ */
+export function Fetched<T>({ f, height = 120, children }: { f: FetchState<T>; height?: number; children: (data: NonNullable<T>) => ReactNode }) {
+  if (f.data == null) return f.error ? <ErrorBox error={f.error} onRetry={f.reload} /> : <Skeleton height={height} />;
+  return (
+    <>
+      {f.error && <ErrorBox error={f.error} onRetry={f.reload} stale />}
+      {children(f.data as NonNullable<T>)}
+    </>
   );
 }
 
@@ -213,6 +243,37 @@ export function CopyButton({ text, label = 'Copy', className }: { text: string; 
   );
 }
 
+export function ThemeToggle() {
+  const { toggleTheme, effectiveTheme } = useApp();
+  return (
+    <button type="button" className="btn btn-icon" onClick={toggleTheme} aria-label={`Switch to ${effectiveTheme === 'dark' ? 'light' : 'dark'} theme`} title="Toggle theme">
+      <Icon name={effectiveTheme === 'dark' ? 'sun' : 'moon'} size={16} />
+    </button>
+  );
+}
+
+/** Fetches a file and saves it; failures go through `fail` (plan limit, signed out...) instead of becoming a saved error file. */
+export function DownloadButton({ path, fallbackName, children, className = 'btn btn-sm' }: { path: string; fallbackName: string; children: ReactNode; className?: string }) {
+  const { fail } = useApp();
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    setBusy(true);
+    try {
+      const { blob, filename } = await download(path, fallbackName);
+      saveBlob(blob, filename);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button type="button" className={className} disabled={busy} aria-busy={busy || undefined} onClick={() => void save()}>
+      {children}
+    </button>
+  );
+}
+
 export function PlanBadge({ plan }: { plan: Plan }) {
   const label = plan === 'selfhost' ? 'Self-hosted' : plan === 'pro' ? 'Pro' : 'Free';
   return <span className={`plan-badge plan-${plan}`}>{label}</span>;
@@ -228,6 +289,52 @@ export function Avatar({ src, name, size = 28 }: { src: string | null | undefine
     );
   }
   return <img className="avatar" src={src} width={size} height={size} alt="" loading="lazy" onError={() => setBroken(true)} />;
+}
+
+const USAGE = {
+  tracked: { label: 'Tracked repositories', row: 'Tracked', verb: 'Tracking' },
+  followed: { label: 'Followed repositories', row: 'Following', verb: 'Following' },
+} as const;
+
+/** Usage against the plan limit. `row`: sidebar line, `inline`: page header, `fact`: contents of a settings `dd`. */
+export function UsageMeter({ kind, variant }: { kind: 'tracked' | 'followed'; variant: 'row' | 'inline' | 'fact' }) {
+  const { me } = useApp();
+  const value = me?.usage[kind] ?? 0;
+  const max = (kind === 'tracked' ? me?.limits.trackedRepos : me?.limits.followedRepos) ?? null;
+  const u = USAGE[kind];
+  const meter = <Meter value={value} max={max} label={u.label} />;
+  if (variant === 'row') {
+    return (
+      <>
+        <div className="usage-row">
+          <span>{u.row}</span>
+          <span className="num">
+            {value}
+            {max != null ? ` / ${max}` : ''}
+          </span>
+        </div>
+        {meter}
+      </>
+    );
+  }
+  if (variant === 'fact') {
+    return (
+      <>
+        <span className="num">{value}</span>
+        {max != null ? ` of ${max}` : ' (no limit)'}
+        {meter}
+      </>
+    );
+  }
+  return (
+    <div className="usage-inline">
+      <span>
+        {u.verb} <strong className="num">{value}</strong>
+        {max != null ? ` of ${max}` : ' (no limit)'}
+      </span>
+      {meter}
+    </div>
+  );
 }
 
 export function Meter({ value, max, label }: { value: number; max: number | null; label: string }) {

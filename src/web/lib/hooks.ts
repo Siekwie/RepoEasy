@@ -1,37 +1,46 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DependencyList, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DependencyList } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import type { Range } from '../../shared/api.ts';
+import { failed, initialSlot, patched, started, succeeded, toError, view, type FetchSlot } from './fetch-state.ts';
+import { parseRange } from './format.ts';
 
 export interface FetchState<T> {
+  /** Only ever data fetched for the current `deps`; null while a new key loads. */
   data: T | null;
+  /** The latest request failed. `data` may still be set (same key, stale) so pages can show both. */
   error: Error | null;
   loading: boolean;
   reload: () => void;
   setData: (d: T | ((prev: T | null) => T | null)) => void;
 }
 
-/** Fetch with stale-while-revalidate: previous data stays while a refetch runs. */
-export function useFetch<T>(fn: () => Promise<T>, deps: DependencyList): FetchState<T> {
-  const [state, setState] = useState<{ data: T | null; error: Error | null; loading: boolean }>({
-    data: null,
-    error: null,
-    loading: true,
-  });
+/**
+ * Fetch keyed by `deps`: changing them drops the old data (it belongs to another key) and refetches.
+ * Changing `refresh` (e.g. the sync version) refetches the same key and keeps its data on screen
+ * meanwhile, so a reload after a sync does not flicker.
+ */
+export function useFetch<T>(fn: () => Promise<T>, deps: DependencyList, refresh: unknown = 0): FetchState<T> {
+  const [slot, setSlot] = useState<FetchSlot<T>>(initialSlot);
   const seq = useRef(0);
   const fnRef = useRef(fn);
   fnRef.current = fn;
+  const depsRef = useRef(deps);
+  depsRef.current = deps;
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the caller's deps are the key, and fn is read through a ref
   const run = useCallback(() => {
     const id = ++seq.current;
-    setState((s) => ({ ...s, loading: true, error: null }));
+    const key = deps;
+    setSlot((s) => started(s));
     fnRef.current().then(
       (d) => {
-        if (id === seq.current) setState({ data: d, error: null, loading: false });
+        if (id === seq.current) setSlot(succeeded(key, d));
       },
       (e: unknown) => {
-        if (id === seq.current) setState((s) => ({ data: s.data, error: e instanceof Error ? e : new Error(String(e)), loading: false }));
+        if (id === seq.current) setSlot((s) => failed(s, key, toError(e)));
       },
     );
-  }, deps);
+  }, [...deps, refresh]);
 
   useEffect(() => {
     run();
@@ -41,10 +50,10 @@ export function useFetch<T>(fn: () => Promise<T>, deps: DependencyList): FetchSt
   }, [run]);
 
   const setData = useCallback((d: T | ((prev: T | null) => T | null)) => {
-    setState((s) => ({ ...s, data: typeof d === 'function' ? (d as (p: T | null) => T | null)(s.data) : d }));
+    setSlot((s) => patched(s, depsRef.current, d));
   }, []);
 
-  return { ...state, reload: run, setData };
+  return { ...view(slot, deps), reload: run, setData };
 }
 
 export function useTitle(title: string): void {
@@ -57,11 +66,14 @@ export function useTitle(title: string): void {
   }, [title]);
 }
 
-export function useSize<T extends HTMLElement>(): [RefObject<T | null>, number] {
-  const ref = useRef<T | null>(null);
+/**
+ * Width of an element. Returns a callback ref (not a ref object) so the observer attaches whenever the
+ * element actually mounts, including when it only appears after data arrives.
+ */
+export function useSize<T extends HTMLElement>(): [(el: T | null) => void, number] {
+  const [el, setEl] = useState<T | null>(null);
   const [w, setW] = useState(0);
   useLayoutEffect(() => {
-    const el = ref.current;
     if (!el) return;
     setW(el.clientWidth);
     const ro = new ResizeObserver((entries) => {
@@ -70,8 +82,27 @@ export function useSize<T extends HTMLElement>(): [RefObject<T | null>, number] 
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-  return [ref, w];
+  }, [el]);
+  return [setEl, w];
+}
+
+/** The `?range=` query param, with a setter that keeps other params and replaces the history entry. */
+export function useRangeParam(): [Range, (r: Range) => void] {
+  const [sp, setSp] = useSearchParams();
+  const range = parseRange(sp.get('range'));
+  const setRange = useCallback(
+    (r: Range) =>
+      setSp(
+        (prev) => {
+          const n = new URLSearchParams(prev);
+          n.set('range', r);
+          return n;
+        },
+        { replace: true },
+      ),
+    [setSp],
+  );
+  return [range, setRange];
 }
 
 export function lsGet(key: string): string | null {

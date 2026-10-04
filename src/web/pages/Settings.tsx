@@ -1,12 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import type { ApiTokenCreated, UserSettings } from '../../shared/api.ts';
 import { useApp, type ThemePref } from '../context.tsx';
-import { api } from '../lib/api.ts';
+import { EXPORT_JSON_PATH, api } from '../lib/api.ts';
 import { fmtDateTime, fmtDay, relative } from '../lib/format.ts';
 import { useFetch, useTitle } from '../lib/hooks.ts';
 import { Icon } from '../components/Icon.tsx';
-import { Avatar, Card, CopyButton, ErrorBox, InstallRepos, Meter, PageHead, PlanBadge, Seg, Skeleton, Switch } from '../components/ui.tsx';
+import { Avatar, Card, CopyButton, DownloadButton, ErrorBox, InstallRepos, PageHead, PlanBadge, Seg, Skeleton, Switch, UsageMeter } from '../components/ui.tsx';
 
 export function Settings() {
   useTitle('Settings');
@@ -14,6 +14,7 @@ export function Settings() {
   const [sp, setSp] = useSearchParams();
   const [portalBusy, setPortalBusy] = useState(false);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runs once, for the ?billing= flag Stripe returns with
   useEffect(() => {
     const b = sp.get('billing');
     if (!b) return;
@@ -29,7 +30,6 @@ export function Settings() {
       },
       { replace: true },
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!me) return null;
@@ -76,17 +76,13 @@ export function Settings() {
             <div>
               <dt>Tracked repositories</dt>
               <dd>
-                <span className="num">{me.usage.tracked}</span>
-                {me.limits.trackedRepos != null ? ` of ${me.limits.trackedRepos}` : ' (no limit)'}
-                <Meter value={me.usage.tracked} max={me.limits.trackedRepos} label="Tracked repositories" />
+                <UsageMeter kind="tracked" variant="fact" />
               </dd>
             </div>
             <div>
               <dt>Followed repositories</dt>
               <dd>
-                <span className="num">{me.usage.followed}</span>
-                {me.limits.followedRepos != null ? ` of ${me.limits.followedRepos}` : ' (no limit)'}
-                <Meter value={me.usage.followed} max={me.limits.followedRepos} label="Followed repositories" />
+                <UsageMeter kind="followed" variant="fact" />
               </dd>
             </div>
             <div>
@@ -110,17 +106,17 @@ export function Settings() {
                 </p>
               </div>
               <div className="btn-row">
-                <button className="btn btn-primary" onClick={() => void startCheckout('month')}>
+                <button type="button" className="btn btn-primary" onClick={() => void startCheckout('month')}>
                   {info.billing.proMonthly}/month
                 </button>
-                <button className="btn" onClick={() => void startCheckout('year')}>
+                <button type="button" className="btn" onClick={() => void startCheckout('year')}>
                   {info.billing.proYearly}/year
                 </button>
               </div>
             </div>
           )}
           {billing && me.billing.hasSubscription && (
-            <button className="btn" disabled={portalBusy} onClick={() => void portal()}>
+            <button type="button" className="btn" disabled={portalBusy} onClick={() => void portal()}>
               Manage subscription
             </button>
           )}
@@ -133,9 +129,9 @@ export function Settings() {
 
         <Card title="Your data" sub="Everything RepoEasy has archived for you stays yours.">
           <div className="btn-row">
-            <a className="btn" href="/api/export.json" download>
+            <DownloadButton path={EXPORT_JSON_PATH} fallbackName="repoeasy-export.json" className="btn">
               <Icon name="download" size={14} /> Download full export (JSON)
-            </a>
+            </DownloadButton>
           </div>
         </Card>
 
@@ -220,7 +216,7 @@ function NotificationsCard() {
 function TokensCard() {
   const { me, fail, toast, syncVersion } = useApp();
   const allowed = !!me?.limits.apiTokens;
-  const tokens = useFetch(() => (allowed ? api.tokens() : Promise.resolve([])), [allowed, syncVersion]);
+  const tokens = useFetch(() => (allowed ? api.tokens() : Promise.resolve([])), [allowed], syncVersion);
   const [name, setName] = useState('');
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<ApiTokenCreated | null>(null);
@@ -284,12 +280,12 @@ function TokensCard() {
             <code className="code-line">{curl}</code>
             <CopyButton text={curl} label="Copy command" />
           </div>
-          <button className="btn btn-sm btn-quiet" onClick={() => setCreated(null)}>
+          <button type="button" className="btn btn-sm btn-quiet" onClick={() => setCreated(null)}>
             I've saved it
           </button>
         </div>
       )}
-      {allowed && tokens.error && !tokens.data && <ErrorBox error={tokens.error} onRetry={tokens.reload} />}
+      {allowed && tokens.error && <ErrorBox error={tokens.error} onRetry={tokens.reload} stale={!!tokens.data} />}
       {allowed && !tokens.data && !tokens.error && <Skeleton height={60} />}
       {allowed && tokens.data && tokens.data.length === 0 && <p className="muted pad">No tokens yet.</p>}
       {tokens.data && tokens.data.length > 0 && (
@@ -316,7 +312,7 @@ function TokensCard() {
                   <td title={fmtDateTime(t.createdAt)}>{relative(t.createdAt)}</td>
                   <td title={t.lastUsedAt ? fmtDateTime(t.lastUsedAt) : undefined}>{t.lastUsedAt ? relative(t.lastUsedAt) : 'Never'}</td>
                   <td className="r">
-                    <button className="btn btn-sm btn-icon" onClick={() => void remove(t.id, t.name)} aria-label={`Delete token ${t.name}`} title="Delete token">
+                    <button type="button" className="btn btn-sm btn-icon" onClick={() => void remove(t.id, t.name)} aria-label={`Delete token ${t.name}`} title="Delete token">
                       <Icon name="trash" size={14} />
                     </button>
                   </td>
@@ -358,7 +354,7 @@ function DeleteCard() {
     <Card title="Delete account" className="card-danger">
       <p>Permanently deletes your account and every archived number, tag and token. This can't be undone. Download an export first if you want a copy.</p>
       {!open ? (
-        <button className="btn btn-danger" onClick={() => setOpen(true)}>
+        <button type="button" className="btn btn-danger" onClick={() => setOpen(true)}>
           Delete my account…
         </button>
       ) : (

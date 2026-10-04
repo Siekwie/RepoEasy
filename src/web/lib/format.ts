@@ -100,10 +100,8 @@ export function bytes(n: number): string {
   return `${v.toFixed(v < 10 ? 1 : 0)} ${u[i]}`;
 }
 
-export function parseRepoInput(raw: string): string {
-  let s = raw.trim();
-  s = s.replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/\.git$/i, '').replace(/[?#].*$/, '');
-  s = s.replace(/\/+$/, '');
-  const parts = s.split('/');
-  return parts.length >= 2 ? `${parts[0]}/${parts[1]}` : s;
-}
+/** GitHub reports unique visitors per day only, so any multi-day "unique" figure is a sum of daily counts. */
+export const UNIQUES_HINT = 'GitHub only reports unique visitors per day. Multi-day totals add the daily counts, so someone who visits on several days is counted once per day.';
+
+/** One-line version of the above, for chart footers. */
+export const UNIQUES_NOTE = 'Unique counts add up daily uniques, so a repeat visitor counts once per day.';

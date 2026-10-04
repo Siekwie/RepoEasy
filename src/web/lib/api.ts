@@ -21,6 +21,7 @@ import type {
   TrafficSeries,
   UserSettings,
 } from '../../shared/api.ts';
+import { filenameFromDisposition } from './download.ts';
 
 export class ApiException extends Error {
   status: number;
@@ -33,15 +34,10 @@ export class ApiException extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function fetchOk(method: string, path: string, headers: Record<string, string>, body?: string): Promise<Response> {
   let res: Response;
   try {
-    res = await fetch(path, {
-      method,
-      credentials: 'same-origin',
-      headers: body !== undefined ? { 'content-type': 'application/json', accept: 'application/json' } : { accept: 'application/json' },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-    });
+    res = await fetch(path, { method, credentials: 'same-origin', headers, body });
   } catch {
     throw new ApiException('Could not reach the RepoEasy server. Check your connection and try again.', 0, 'network');
   }
@@ -57,9 +53,25 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     }
     throw new ApiException(message, res.status, code);
   }
+  return res;
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetchOk(
+    method,
+    path,
+    body !== undefined ? { 'content-type': 'application/json', accept: 'application/json' } : { accept: 'application/json' },
+    body !== undefined ? JSON.stringify(body) : undefined,
+  );
   if (res.status === 204) return undefined as T;
   const text = await res.text();
   return (text ? JSON.parse(text) : undefined) as T;
+}
+
+/** Fetch a file (CSV/JSON export). Errors surface as ApiException like any other call, never as a saved file. */
+export async function download(path: string, fallbackName: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetchOk('GET', path, {});
+  return { blob: await res.blob(), filename: filenameFromDisposition(res.headers.get('content-disposition'), fallbackName) };
 }
 
 const get = <T>(p: string) => request<T>('GET', p);
@@ -98,5 +110,5 @@ export const api = {
   logout: () => send<{ ok: true }>('POST', '/auth/logout'),
 };
 
-export const exportCsvUrl = (id: number, kind: 'traffic' | 'metrics' | 'referrers' | 'paths') =>
-  `/api/repos/${id}/export.csv?kind=${kind}`;
+export const exportCsvPath = (id: number, kind: 'traffic' | 'metrics' | 'referrers' | 'paths') => `/api/repos/${id}/export.csv?kind=${kind}`;
+export const EXPORT_JSON_PATH = '/api/export.json';

@@ -491,6 +491,14 @@ select {
   font-weight: 500;
   margin-top: 6px;
 }
+.field-error {
+  color: var(--bad-ink);
+  font-size: 12.5px;
+  font-weight: 500;
+}
+input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
 .switches {
   display: flex;
   flex-direction: column;
@@ -735,7 +743,6 @@ select {
   z-index: 200;
   display: flex;
   flex-direction: column;
-  gap: 8px;
   max-width: min(420px, calc(100vw - 32px));
 }
 .toast {
@@ -749,6 +756,14 @@ select {
 .toast-error {
   background: var(--danger);
   color: var(--danger-ink);
+}
+.toast-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast-stack:not(:empty) + .toast-stack:not(:empty) {
+  margin-top: 8px;
 }
 .scrim {
   position: fixed;
@@ -773,6 +788,9 @@ select {
 .dialog h2 {
   font-family: var(--font-serif);
   font-size: 24px;
+}
+.dialog:focus {
+  outline: none;
 }
 .dialog-actions {
   display: flex;
@@ -920,6 +938,13 @@ select {
 }
 .state-error p {
   color: var(--ink-2);
+}
+.state-stale {
+  padding: 12px 16px;
+  align-items: center;
+}
+.state-stale p {
+  margin: 2px 0 8px;
 }
 .state-first .muted {
   margin-top: 0;
@@ -1226,6 +1251,13 @@ select {
 .heat-cell:hover {
   stroke: var(--ink);
   stroke-width: 1.5;
+}
+.heat-cell:focus {
+  outline: none;
+}
+.heat-cell:focus-visible {
+  stroke: var(--focus);
+  stroke-width: 2.5;
 }
 .heat-legend {
   display: flex;
@@ -1542,6 +1574,11 @@ th.r .th-btn {
 }
 .tag-removable button:hover {
   background: color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.tag-removable.is-armed {
+  background: color-mix(in srgb, var(--danger) 30%, var(--brand-soft));
+  outline: 2px solid var(--danger);
+  outline-offset: 1px;
 }
 .ci {
   font-weight: 600;
@@ -1948,6 +1985,11 @@ th.r .th-btn {
 }
 .facts .meter {
   margin-top: 6px;
+}
+.has-hint {
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: help;
 }
 .upgrade {
   display: flex;

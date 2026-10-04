@@ -1,32 +1,21 @@
 import { useMemo, useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import type { Range } from '../../shared/api.ts';
+import { Link } from 'react-router-dom';
 import { useApp } from '../context.tsx';
 import { api } from '../lib/api.ts';
-import { fmtDay, parseRange, rangeLong } from '../lib/format.ts';
-import { useFetch, useInterval, useTitle } from '../lib/hooks.ts';
+import { UNIQUES_HINT, fmtDay, rangeLong } from '../lib/format.ts';
+import { useFetch, useInterval, useRangeParam, useTitle } from '../lib/hooks.ts';
 import { trafficSeries } from '../lib/series.ts';
 import { BarList, Chart, CommitHeatmap, LangBar } from '../components/charts.tsx';
 import { EventList } from '../components/feeds.tsx';
 import { RangeSelect } from '../components/RangeSelect.tsx';
-import { Card, Empty, ErrorBox, FirstSync, PageHead, PctDelta, Seg, SignedDelta, Skeleton, Tile } from '../components/ui.tsx';
+import { Card, Empty, ErrorBox, Fetched, FirstSync, PageHead, PctDelta, Seg, SignedDelta, Skeleton, Tile } from '../components/ui.tsx';
 
 export function Overview() {
   useTitle('Overview');
   const { sync, syncVersion } = useApp();
-  const [sp, setSp] = useSearchParams();
-  const range = parseRange(sp.get('range'));
-  const setRange = (r: Range) =>
-    setSp(
-      (prev) => {
-        const n = new URLSearchParams(prev);
-        n.set('range', r);
-        return n;
-      },
-      { replace: true },
-    );
-  const ov = useFetch(() => api.overview(range), [range, syncVersion]);
-  const ev = useFetch(() => api.events(8), [syncVersion]);
+  const [range, setRange] = useRangeParam();
+  const ov = useFetch(() => api.overview(range), [range], syncVersion);
+  const ev = useFetch(() => api.events(8), [], syncVersion);
   const [tab, setTab] = useState<'views' | 'clones'>('views');
 
   const data = ov.data;
@@ -44,7 +33,7 @@ export function Overview() {
   return (
     <>
       <PageHead title="Overview" sub={sub} actions={<RangeSelect value={range} onChange={setRange} />} />
-      {ov.error && !data && <ErrorBox error={ov.error} onRetry={ov.reload} />}
+      {ov.error && <ErrorBox error={ov.error} onRetry={ov.reload} stale={!!data} />}
       {!data && !ov.error && (
         <>
           <Skeleton height={120} />
@@ -81,8 +70,8 @@ export function Overview() {
             </div>
             <div className="kpis">
               <Tile label="Views" value={data.lifetime.views} sub="all tracked repos" />
-              <Tile label="Unique visitors" value={data.lifetime.uniques} sub="sum of daily uniques" />
-              <Tile label="Clones" value={data.lifetime.clones} sub={`${data.lifetime.cloneUniques.toLocaleString()} unique cloners`} />
+              <Tile label="Unique visitors" value={data.lifetime.uniques} sub="sum of daily uniques" hint={UNIQUES_HINT} />
+              <Tile label="Clones" value={data.lifetime.clones} sub={`${data.lifetime.cloneUniques.toLocaleString()} unique cloners, daily sum`} />
               <Tile
                 label="Stars"
                 value={data.stars}
@@ -98,11 +87,12 @@ export function Overview() {
             </div>
             <div className="kpis">
               <Tile label="Views" value={data.traffic.totals.views} sub={<PctDelta cur={data.traffic.totals.views} prev={data.traffic.previous?.views} />} />
-              <Tile label="Unique visitors" value={data.traffic.totals.uniques} sub={<PctDelta cur={data.traffic.totals.uniques} prev={data.traffic.previous?.uniques} />} />
+              <Tile label="Unique visitors" value={data.traffic.totals.uniques} hint={UNIQUES_HINT} sub={<PctDelta cur={data.traffic.totals.uniques} prev={data.traffic.previous?.uniques} />} />
               <Tile label="Clones" value={data.traffic.totals.clones} sub={<PctDelta cur={data.traffic.totals.clones} prev={data.traffic.previous?.clones} />} />
               <Tile
                 label="Unique cloners"
                 value={data.traffic.totals.cloneUniques}
+                hint={UNIQUES_HINT}
                 sub={<PctDelta cur={data.traffic.totals.cloneUniques} prev={data.traffic.previous?.cloneUniques} />}
               />
             </div>
@@ -139,7 +129,7 @@ export function Overview() {
           <div className="grid-2">
             <Card title="Top repositories by views" sub={rangeLong(range)}>
               <BarList
-                rows={data.topByViews.map((r) => ({ key: r.id, label: r.fullName, value: r.views, secondary: `${r.uniques.toLocaleString()} visitors`, to: `/repos/${r.id}` }))}
+                rows={data.topByViews.map((r) => ({ key: r.id, label: r.fullName, value: r.views, secondary: `${r.uniques.toLocaleString()} visitors`, title: `${r.views.toLocaleString()} views, ${r.uniques.toLocaleString()} visitors (daily uniques added up)`, to: `/repos/${r.id}` }))}
                 empty="No views in this period."
                 valueLabel="views"
               />
@@ -155,7 +145,7 @@ export function Overview() {
             <Card title="Top referrers" sub="Where visitors come from">
               <BarList
                 color="var(--s2)"
-                rows={data.topReferrers.map((r) => ({ key: r.referrer, label: r.referrer, value: r.count, secondary: `${r.uniques.toLocaleString()} unique` }))}
+                rows={data.topReferrers.map((r) => ({ key: r.referrer, label: r.referrer, value: r.count, secondary: `${r.uniques.toLocaleString()} unique`, title: `${r.count.toLocaleString()} views, ${r.uniques.toLocaleString()} unique (daily uniques added up)` }))}
                 empty="No referrers recorded yet."
                 valueLabel="views"
               />
@@ -177,7 +167,9 @@ export function Overview() {
               </Link>
             }
           >
-            {ev.error && !ev.data ? <ErrorBox error={ev.error} onRetry={ev.reload} /> : ev.data ? <EventList events={ev.data} /> : <Skeleton height={100} />}
+            <Fetched f={ev} height={100}>
+              {(e) => <EventList events={e} />}
+            </Fetched>
           </Card>
         </div>
       )}

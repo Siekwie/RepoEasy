@@ -2,16 +2,16 @@ import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useApp } from '../context.tsx';
 import { ApiException, api } from '../lib/api.ts';
-import { fmtDay } from '../lib/format.ts';
+import { UNIQUES_HINT, fmtDay } from '../lib/format.ts';
 import { useFetch, useTitle } from '../lib/hooks.ts';
 import { metricPoints, trafficSeries } from '../lib/series.ts';
 import { BarList, Chart } from '../components/charts.tsx';
 import { Icon, Logo } from '../components/Icon.tsx';
-import { Card, ErrorBox, LangDot, Skeleton, Tile } from '../components/ui.tsx';
+import { Card, ErrorBox, LangDot, Skeleton, ThemeToggle, Tile } from '../components/ui.tsx';
 
 export function PublicShare() {
   const { owner = '', repo = '' } = useParams();
-  const { me, toggleTheme, effectiveTheme } = useApp();
+  const { me } = useApp();
   const q = useFetch(() => api.publicRepo(owner, repo), [owner, repo]);
   const d = q.data;
   useTitle(d ? d.fullName : `${owner}/${repo}`);
@@ -38,9 +38,7 @@ export function PublicShare() {
               Open my dashboard
             </Link>
           )}
-          <button className="btn btn-icon" onClick={toggleTheme} aria-label={`Switch to ${effectiveTheme === 'dark' ? 'light' : 'dark'} theme`}>
-            <Icon name={effectiveTheme === 'dark' ? 'sun' : 'moon'} size={16} />
-          </button>
+          <ThemeToggle />
         </div>
       </header>
       <main className="public-main" id="main">
@@ -57,7 +55,7 @@ export function PublicShare() {
             </div>
           </div>
         )}
-        {q.error && !notFound && !d && <ErrorBox error={q.error} onRetry={q.reload} />}
+        {q.error && !notFound && <ErrorBox error={q.error} onRetry={q.reload} stale={!!d} />}
         {!d && !q.error && (
           <>
             <Skeleton height={100} />
@@ -84,7 +82,7 @@ export function PublicShare() {
             </div>
             <section className="kpis kpis-6" aria-label="Totals">
               <Tile label="Views" value={d.lifetime.views} sub={d.trafficSince ? `since ${fmtDay(d.trafficSince)}` : 'lifetime'} />
-              <Tile label="Unique visitors" value={d.lifetime.uniques} sub="sum of daily uniques" />
+              <Tile label="Unique visitors" value={d.lifetime.uniques} sub="sum of daily uniques" hint={UNIQUES_HINT} />
               <Tile label="Clones" value={d.lifetime.clones} sub="lifetime" />
               <Tile label="Stars" value={d.stars} />
               <Tile label="Forks" value={d.forks} />
@@ -103,7 +101,7 @@ export function PublicShare() {
               <Card title="Top referrers">
                 <BarList
                   color="var(--s2)"
-                  rows={d.referrers.map((r) => ({ key: r.referrer, label: r.referrer, value: r.count, secondary: `${r.uniques.toLocaleString()} unique` }))}
+                  rows={d.referrers.map((r) => ({ key: r.referrer, label: r.referrer, value: r.count, secondary: `${r.uniques.toLocaleString()} unique`, title: `${r.count.toLocaleString()} views, ${r.uniques.toLocaleString()} unique (daily uniques added up)` }))}
                   empty="No referrers recorded."
                   valueLabel="views"
                 />

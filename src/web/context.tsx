@@ -2,6 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { AppInfo, Me, SyncStatus } from '../shared/api.ts';
 import { ApiException, api } from './lib/api.ts';
 import { lsGet, lsSet } from './lib/hooks.ts';
+import { syncFinished } from './lib/sync.ts';
+import { Modal } from './components/Modal.tsx';
 
 export type ThemePref = 'system' | 'light' | 'dark';
 type ToastKind = 'info' | 'error' | 'success';
@@ -18,7 +20,7 @@ export interface AppCtx {
   reloadMe: () => Promise<void>;
   sync: SyncStatus | null;
   startSync: () => Promise<void>;
-  /** Increments whenever a sync finishes; include in fetch deps to refresh data. */
+  /** Increments whenever a sync finishes (including ones the server started); pass to `useFetch` as `refresh`. */
   syncVersion: number;
   toast: (text: string, kind?: ToastKind) => void;
   fail: (e: unknown) => void;
@@ -66,6 +68,8 @@ export function AppProvider({ children }: { children: (info: AppInfo | null, me:
   const [themePref, setThemePrefState] = useState<ThemePref>(readThemePref);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches);
   const toastId = useRef(0);
+  // the newest sync status seen, so overlapping polls compare against the same baseline
+  const syncRef = useRef<SyncStatus | null>(null);
 
   // ---- boot
   const load = useCallback(async () => {
@@ -99,10 +103,14 @@ export function AppProvider({ children }: { children: (info: AppInfo | null, me:
 
   const setMe = useCallback((m: Me) => setMeState(m), []);
 
+  const updateSync = useCallback((s: SyncStatus | null) => {
+    syncRef.current = s;
+    setSync(s);
+  }, []);
+
   useEffect(() => {
-    if (me) setSync(me.sync);
-    else setSync(null);
-  }, [me]);
+    updateSync(me ? me.sync : null);
+  }, [me, updateSync]);
 
   // ---- theme
   useEffect(() => {
@@ -151,29 +159,50 @@ export function AppProvider({ children }: { children: (info: AppInfo | null, me:
   // ---- sync
   const startSync = useCallback(async () => {
     try {
-      setSync(await api.startSync());
+      updateSync(await api.startSync());
     } catch (e) {
       fail(e);
     }
-  }, [fail]);
+  }, [fail, updateSync]);
 
+  /** Read /api/sync once; when a sync has finished since we last looked, tell pages to refetch. */
+  const pollSync = useCallback(async () => {
+    try {
+      const s = await api.syncStatus();
+      const finished = syncFinished(syncRef.current, s);
+      updateSync(s);
+      if (finished) {
+        setSyncVersion((v) => v + 1);
+        void reloadMe();
+      }
+    } catch {
+      /* keep polling */
+    }
+  }, [reloadMe, updateSync]);
+
+  // fast while a sync we know about is running
   const running = !!sync?.running && !!me;
   useEffect(() => {
     if (!running) return;
-    const t = window.setInterval(async () => {
-      try {
-        const s = await api.syncStatus();
-        setSync(s);
-        if (!s.running) {
-          setSyncVersion((v) => v + 1);
-          void reloadMe();
-        }
-      } catch {
-        /* keep polling */
-      }
-    }, 2000);
+    const t = window.setInterval(() => void pollSync(), 2000);
     return () => window.clearInterval(t);
-  }, [running, reloadMe]);
+  }, [running, pollSync]);
+
+  // slow otherwise, so syncs the server starts on its own schedule show up without a reload.
+  // The demo account never syncs, so it is skipped. Paused while the tab is hidden, checked on return.
+  const watching = !!me && !me.isDemo && !running;
+  useEffect(() => {
+    if (!watching) return;
+    const tick = () => {
+      if (!document.hidden) void pollSync();
+    };
+    const t = window.setInterval(tick, 30_000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [watching, pollSync]);
 
   const startCheckout = useCallback(
     async (interval: 'month' | 'year') => {
@@ -232,12 +261,26 @@ export function AppProvider({ children }: { children: (info: AppInfo | null, me:
       {value ? (
         <Ctx.Provider value={value}>
           {children(info, me)}
-          <div className="toasts" role="status" aria-live="polite">
-            {toasts.map((t) => (
-              <div key={t.id} className={`toast toast-${t.kind}`}>
-                {t.text}
-              </div>
-            ))}
+          <div className="toasts">
+            {/* two always-mounted regions: errors interrupt (alert), everything else waits its turn */}
+            <div className="toast-stack" role="status" aria-live="polite">
+              {toasts
+                .filter((t) => t.kind !== 'error')
+                .map((t) => (
+                  <div key={t.id} className={`toast toast-${t.kind}`}>
+                    {t.text}
+                  </div>
+                ))}
+            </div>
+            <div className="toast-stack" role="alert">
+              {toasts
+                .filter((t) => t.kind === 'error')
+                .map((t) => (
+                  <div key={t.id} className="toast toast-error">
+                    {t.text}
+                  </div>
+                ))}
+            </div>
           </div>
           {upgrade !== null && (
             <UpgradeDialog
@@ -266,41 +309,32 @@ function UpgradeDialog(props: {
   onCheckout: (i: 'month' | 'year') => void;
 }) {
   const { message, billing, plan, info, onClose, onCheckout } = props;
-  const ref = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    ref.current?.focus();
-    const on = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', on);
-    return () => window.removeEventListener('keydown', on);
-  }, [onClose]);
   const canUpgrade = billing && plan === 'free';
   return (
-    <div className="scrim" onClick={onClose}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="upg-title" onClick={(e) => e.stopPropagation()}>
-        <h2 id="upg-title">{canUpgrade ? 'This needs Pro' : 'Plan limit reached'}</h2>
-        <p>{message}</p>
+    <Modal onClose={onClose} labelledBy="upg-title">
+      <h2 id="upg-title">{canUpgrade ? 'This needs Pro' : 'Plan limit reached'}</h2>
+      <p>{message}</p>
+      {canUpgrade && (
+        <p className="muted">
+          Pro: unlimited tracked repositories, {info.limits.pro.followedRepos ?? 'unlimited'} followed, sync every {info.limits.pro.syncIntervalHours} hours, API tokens,
+          webhook alerts and public share pages.
+        </p>
+      )}
+      <div className="dialog-actions">
         {canUpgrade && (
-          <p className="muted">
-            Pro: unlimited tracked repositories, {info.limits.pro.followedRepos ?? 'unlimited'} followed, sync every {info.limits.pro.syncIntervalHours} hours, API
-            tokens, webhook alerts and public share pages.
-          </p>
+          <>
+            <button type="button" className="btn btn-primary" onClick={() => onCheckout('month')}>
+              Pro {info.billing.proMonthly}/month
+            </button>
+            <button type="button" className="btn" onClick={() => onCheckout('year')}>
+              Pro {info.billing.proYearly}/year
+            </button>
+          </>
         )}
-        <div className="dialog-actions">
-          {canUpgrade && (
-            <>
-              <button className="btn btn-primary" onClick={() => onCheckout('month')}>
-                Pro {info.billing.proMonthly}/month
-              </button>
-              <button className="btn" onClick={() => onCheckout('year')}>
-                Pro {info.billing.proYearly}/year
-              </button>
-            </>
-          )}
-          <button className="btn btn-quiet" ref={ref} onClick={onClose}>
-            {canUpgrade ? 'Not now' : 'Close'}
-          </button>
-        </div>
+        <button type="button" className="btn btn-quiet" data-autofocus onClick={onClose}>
+          {canUpgrade ? 'Not now' : 'Close'}
+        </button>
       </div>
-    </div>
+    </Modal>
   );
 }

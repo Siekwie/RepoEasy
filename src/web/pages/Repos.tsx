@@ -1,14 +1,15 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import type { RepoPatch, RepoSummary } from '../../shared/api.ts';
+import type { RepoSummary } from '../../shared/api.ts';
 import { useApp } from '../context.tsx';
 import { api } from '../lib/api.ts';
 import { relative, fmtDateTime } from '../lib/format.ts';
 import { useFetch, useInterval, useTitle } from '../lib/hooks.ts';
+import { usePatchRepo } from '../lib/repo-actions.ts';
 import { Sparkline } from '../components/charts.tsx';
 import { Icon } from '../components/Icon.tsx';
 import { CiBadge, HealthPill, RepoMarkers } from '../components/repo.tsx';
-import { Empty, ErrorBox, FirstSync, INSTALL_HINT, InstallRepos, LangDot, Meter, Num, PageHead, Skeleton, Switch, SignedDelta } from '../components/ui.tsx';
+import { Empty, ErrorBox, FirstSync, INSTALL_HINT, InstallRepos, LangDot, Num, PageHead, Skeleton, Switch, SignedDelta, UsageMeter } from '../components/ui.tsx';
 
 type SortKey = 'name' | 'stars' | 'views14' | 'viewsLife' | 'clonesLife' | 'issues' | 'ci' | 'pushed' | 'health';
 type Filter = 'all' | 'tracked' | 'untracked' | 'private' | 'public' | 'archived' | 'pinned';
@@ -50,14 +51,13 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 
 export function Repos() {
   useTitle('Repositories');
-  const { me, info, sync, syncVersion, fail, reloadMe, toast } = useApp();
-  const repos = useFetch(() => api.repos(), [syncVersion]);
+  const { info, sync, syncVersion, toast } = useApp();
+  const repos = useFetch(() => api.repos(), [], syncVersion);
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<Filter>('all');
   const [tag, setTag] = useState('');
   const [showHidden, setShowHidden] = useState(false);
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'stars', dir: 'desc' });
-  const [busy, setBusy] = useState<Set<number>>(new Set());
   const [bulk, setBulk] = useState(false);
 
   const own = useMemo(() => (repos.data ?? []).filter((r) => r.relation !== 'followed'), [repos.data]);
@@ -101,28 +101,8 @@ export function Repos() {
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'name' ? 'asc' : 'desc' }));
   }
 
-  function replace(u: RepoSummary) {
-    repos.setData((prev) => prev?.map((x) => (x.id === u.id ? u : x)) ?? prev);
-  }
-
-  async function patch(r: RepoSummary, p: RepoPatch): Promise<boolean> {
-    setBusy((b) => new Set(b).add(r.id));
-    try {
-      const u = await api.patchRepo(r.id, p);
-      replace(u);
-      if (p.tracked !== undefined) void reloadMe();
-      return true;
-    } catch (e) {
-      fail(e);
-      return false;
-    } finally {
-      setBusy((b) => {
-        const n = new Set(b);
-        n.delete(r.id);
-        return n;
-      });
-    }
-  }
+  const replace = useCallback((u: RepoSummary) => repos.setData((prev) => prev?.map((x) => (x.id === u.id ? u : x)) ?? prev), [repos.setData]);
+  const { patch, busy } = usePatchRepo(replace);
 
   async function bulkTrack(on: boolean) {
     const targets = rows.filter((r) => r.tracked !== on && (!on || r.canPush));
@@ -135,7 +115,7 @@ export function Repos() {
     setBulk(true);
     let done = 0;
     for (const r of targets) {
-      const ok = await patch(r, { tracked: on });
+      const ok = await patch(r.id, { tracked: on });
       if (!ok) break;
       done++;
     }
@@ -143,7 +123,6 @@ export function Repos() {
     if (done > 0) toast(`${on ? 'Now tracking' : 'Stopped tracking'} ${done} ${done === 1 ? 'repository' : 'repositories'}.`, 'success');
   }
 
-  const limit = me?.limits.trackedRepos ?? null;
   const loadedEmpty = repos.data != null && own.length === 0;
 
   function Th({ k, label, right, className, title }: { k: SortKey; label: string; right?: boolean; className?: string; title?: string }) {
@@ -172,17 +151,9 @@ export function Repos() {
             )}
           </>
         }
-        actions={
-          <div className="usage-inline">
-            <span>
-              Tracking <strong className="num">{me?.usage.tracked ?? 0}</strong>
-              {limit != null ? ` of ${limit}` : ' (no limit)'}
-            </span>
-            <Meter value={me?.usage.tracked ?? 0} max={limit} label="Tracked repositories" />
-          </div>
-        }
+        actions={<UsageMeter kind="tracked" variant="inline" />}
       />
-      {repos.error && !repos.data && <ErrorBox error={repos.error} onRetry={repos.reload} />}
+      {repos.error && <ErrorBox error={repos.error} onRetry={repos.reload} stale={!!repos.data} />}
       {!repos.data && !repos.error && <Skeleton height={320} />}
       {loadedEmpty && (sync?.running ? <FirstSync step={sync.step} /> : <Empty
             title="No repositories yet"
@@ -224,10 +195,10 @@ export function Repos() {
             )}
             <div className="toolbar-end">
               {hiddenCount > 0 && <Switch checked={showHidden} onChange={setShowHidden} label={`Show hidden (${hiddenCount})`} />}
-              <button className="btn btn-sm" disabled={bulk} onClick={() => void bulkTrack(true)} title="Track every repository in the current view that you can push to">
+              <button type="button" className="btn btn-sm" disabled={bulk} onClick={() => void bulkTrack(true)} title="Track every repository in the current view that you can push to">
                 Track all shown
               </button>
-              <button className="btn btn-sm" disabled={bulk} onClick={() => void bulkTrack(false)}>
+              <button type="button" className="btn btn-sm" disabled={bulk} onClick={() => void bulkTrack(false)}>
                 Untrack all shown
               </button>
             </div>
@@ -293,7 +264,7 @@ export function Repos() {
                       <td className="r">{r.traffic14d ? <Num v={r.traffic14d.views} /> : <span className="muted" title="Traffic needs push access">–</span>}</td>
                       <td
                         className="r"
-                        title={r.trafficSince ? `Since ${new Date(r.trafficSince + 'T00:00:00Z').toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })}` : undefined}
+                        title={r.trafficSince ? `Since ${new Date(`${r.trafficSince}T00:00:00Z`).toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })}` : undefined}
                       >
                         {r.trafficLifetime ? <Num v={r.trafficLifetime.views} /> : <span className="muted">–</span>}
                       </td>
@@ -322,24 +293,24 @@ export function Repos() {
                             checked={r.tracked}
                             busy={b || bulk}
                             disabled={!r.canPush && !r.tracked}
-                            onChange={(v) => void patch(r, { tracked: v })}
+                            onChange={(v) => void patch(r.id, { tracked: v })}
                             label={`Track ${r.fullName}`}
                           />
-                          <button
+                          <button type="button"
                             className="btn btn-icon btn-sm"
                             aria-pressed={r.pinned}
                             disabled={b}
-                            onClick={() => void patch(r, { pinned: !r.pinned })}
+                            onClick={() => void patch(r.id, { pinned: !r.pinned })}
                             title={r.pinned ? 'Unpin' : 'Pin to top'}
                             aria-label={`${r.pinned ? 'Unpin' : 'Pin'} ${r.fullName}`}
                           >
                             <Icon name="pin" size={14} />
                           </button>
-                          <button
+                          <button type="button"
                             className="btn btn-icon btn-sm"
                             disabled={b}
                             onClick={async () => {
-                              const ok = await patch(r, { hidden: !r.hidden });
+                              const ok = await patch(r.id, { hidden: !r.hidden });
                               if (ok && !r.hidden) toast(`${r.name} is hidden. Use "Show hidden" to see it again.`);
                             }}
                             title={r.hidden ? 'Unhide' : 'Hide from lists'}

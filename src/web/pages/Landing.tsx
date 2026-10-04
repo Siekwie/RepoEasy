@@ -4,6 +4,7 @@ import { useApp } from '../context.tsx';
 import { api } from '../lib/api.ts';
 import { useTitle } from '../lib/hooks.ts';
 import { Icon, Logo } from '../components/Icon.tsx';
+import { ThemeToggle } from '../components/ui.tsx';
 
 /** Deterministic pseudo-random so the illustration is stable between renders. */
 function illustration(n: number): number[] {
@@ -136,7 +137,7 @@ function SignIn({ info }: { info: AppInfo }) {
         </form>
       )}
       {demo && (
-        <button className="btn btn-lg" onClick={() => void signInDemo()} disabled={busy !== null}>
+        <button type="button" className="btn btn-lg" onClick={() => void signInDemo()} disabled={busy !== null}>
           {busy === 'demo' ? 'Opening demo…' : 'Try the live demo'}
         </button>
       )}
@@ -229,7 +230,7 @@ function Pricing({ info }: { info: AppInfo }) {
 
 export function Landing() {
   useTitle('');
-  const { info, toggleTheme, effectiveTheme } = useApp();
+  const { info } = useApp();
   return (
     <div className="landing">
       <header className="land-top">
@@ -241,9 +242,7 @@ export function Landing() {
           <a className="btn btn-sm btn-quiet" href="#signin">
             Sign in
           </a>
-          <button className="btn btn-icon" onClick={toggleTheme} aria-label={`Switch to ${effectiveTheme === 'dark' ? 'light' : 'dark'} theme`}>
-            <Icon name={effectiveTheme === 'dark' ? 'sun' : 'moon'} size={16} />
-          </button>
+          <ThemeToggle />
         </div>
       </header>
       <main id="main">

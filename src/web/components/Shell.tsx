@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { NavLink, Outlet, Link } from 'react-router-dom';
 import { useApp } from '../context.tsx';
 import { fmtDateTime, relative } from '../lib/format.ts';
 import { useInterval } from '../lib/hooks.ts';
 import { Icon, Logo, type IconName } from './Icon.tsx';
-import { Avatar, Meter, PlanBadge } from './ui.tsx';
+import { Avatar, PlanBadge, Skeleton, ThemeToggle, UsageMeter } from './ui.tsx';
 
 const NAV: Array<{ to: string; label: string; icon: IconName; end?: boolean }> = [
   { to: '/', label: 'Overview', icon: 'overview', end: true },
@@ -41,7 +41,7 @@ function SyncControl() {
           text
         )}
       </span>
-      <button className="btn btn-sm" onClick={() => void startSync()} disabled={running} aria-label="Sync now">
+      <button type="button" className="btn btn-sm" onClick={() => void startSync()} disabled={running} aria-label="Sync now">
         <Icon name="sync" size={14} className={running ? 'spin' : ''} />
         <span className="hide-sm">{running ? 'Syncing' : 'Sync now'}</span>
       </button>
@@ -50,9 +50,8 @@ function SyncControl() {
 }
 
 export function Shell() {
-  const { me, info, toggleTheme, effectiveTheme, signOut } = useApp();
+  const { me, info, signOut } = useApp();
   if (!me) return null;
-  const limits = me.limits;
   return (
     <div className="shell">
       <a className="skip" href="#main">
@@ -73,22 +72,8 @@ export function Shell() {
         </nav>
         <div className="side-foot">
           <div className="usage">
-            <div className="usage-row">
-              <span>Tracked</span>
-              <span className="num">
-                {me.usage.tracked}
-                {limits.trackedRepos != null ? ` / ${limits.trackedRepos}` : ''}
-              </span>
-            </div>
-            <Meter value={me.usage.tracked} max={limits.trackedRepos} label="Tracked repositories" />
-            <div className="usage-row">
-              <span>Following</span>
-              <span className="num">
-                {me.usage.followed}
-                {limits.followedRepos != null ? ` / ${limits.followedRepos}` : ''}
-              </span>
-            </div>
-            <Meter value={me.usage.followed} max={limits.followedRepos} label="Followed repositories" />
+            <UsageMeter kind="tracked" variant="row" />
+            <UsageMeter kind="followed" variant="row" />
             {info.billing.enabled && me.plan === 'free' && (
               <Link to="/settings#plan" className="usage-upgrade">
                 Upgrade to Pro
@@ -104,15 +89,13 @@ export function Shell() {
           </Link>
           <SyncControl />
           <div className="top-right">
-            <button className="btn btn-icon" onClick={toggleTheme} aria-label={`Switch to ${effectiveTheme === 'dark' ? 'light' : 'dark'} theme`} title="Toggle theme">
-              <Icon name={effectiveTheme === 'dark' ? 'sun' : 'moon'} size={16} />
-            </button>
+            <ThemeToggle />
             <Link to="/settings" className="userchip" title={`Signed in as ${me.login}`}>
               <Avatar src={me.avatarUrl} name={me.login} size={26} />
               <span className="userchip-name hide-sm">{me.login}</span>
               <PlanBadge plan={me.plan} />
             </Link>
-            <button className="btn btn-icon" onClick={() => void signOut()} aria-label="Sign out" title="Sign out">
+            <button type="button" className="btn btn-icon" onClick={() => void signOut()} aria-label="Sign out" title="Sign out">
               <Icon name="logout" size={16} />
             </button>
           </div>
@@ -123,7 +106,16 @@ export function Shell() {
           </div>
         )}
         <main id="main" tabIndex={-1} className="content">
-          <Outlet />
+          <Suspense
+            fallback={
+              <>
+                <Skeleton height={140} />
+                <Skeleton height={300} />
+              </>
+            }
+          >
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>
