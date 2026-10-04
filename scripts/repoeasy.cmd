@@ -1,7 +1,12 @@
 @echo off
-rem Starts the local single-user RepoEasy instance and opens it in the browser.
-rem Uses GITHUB_TOKEN from .env if present, otherwise the GitHub CLI's token.
+rem Opens RepoEasy in the browser. The instance that archives traffic runs on the server (see deploy\).
+rem "repoeasy local" starts a single-user instance on this machine instead, on the data in .\data.
+rem It uses GITHUB_TOKEN from .env if present, otherwise the GitHub CLI's token.
 setlocal
+if /i not "%~1"=="local" (
+  start "" https://repoeasy.wiest-lab.eu
+  exit /b 0
+)
 cd /d "%~dp0.."
 if not exist node_modules call npm install
 if not exist dist\server.mjs call npm run build
