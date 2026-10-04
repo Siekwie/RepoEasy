@@ -1,0 +1,24 @@
+# RepoEasy on a server, behind the shared Caddy proxy in deploy/proxy.
+# deploy/deploy.sh runs this from /srv/repoeasy, which holds app/ (the source), data/ and .env:
+#   docker compose -f app/deploy/compose.yml --project-directory . up -d --build
+name: repoeasy
+
+services:
+  repoeasy:
+    build: ./app
+    container_name: repoeasy
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      DATA_DIR: /data
+      # Caddy is the one proxy in front; it reports the client address in X-Forwarded-For
+      TRUST_PROXY: 1
+    volumes:
+      - ./data:/data
+    # No published ports: only the proxy, on the same Docker network, can reach the app.
+    networks: [web]
+
+networks:
+  web:
+    external: true

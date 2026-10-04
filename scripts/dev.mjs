@@ -5,7 +5,9 @@ const procs = ['dev:server', 'dev:web'].map((script) =>
   spawn('npm', ['run', script], { stdio: 'inherit', shell: true }),
 );
 
-const stop = () => procs.forEach((p) => p.kill());
+const stop = () => {
+  for (const p of procs) p.kill();
+};
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
-procs.forEach((p) => p.on('exit', stop));
+for (const p of procs) p.on('exit', stop);

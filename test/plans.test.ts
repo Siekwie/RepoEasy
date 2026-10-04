@@ -8,11 +8,14 @@ process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
 let setup: typeof import('./helpers.ts').setup;
 let applyStripeEvent: typeof import('../src/server/billing.ts').applyStripeEvent;
 let dueUsers: typeof import('../src/server/scheduler.ts').dueUsers;
+let overdue: typeof import('../src/server/scheduler.ts').overdue;
+let enforceLimits: typeof import('../src/server/sync.ts').enforceLimits;
 
 beforeAll(async () => {
   ({ setup } = await import('./helpers.ts'));
   ({ applyStripeEvent } = await import('../src/server/billing.ts'));
-  ({ dueUsers } = await import('../src/server/scheduler.ts'));
+  ({ dueUsers, overdue } = await import('../src/server/scheduler.ts'));
+  ({ enforceLimits } = await import('../src/server/sync.ts'));
 });
 
 const repos = () => [1, 2, 3, 4, 5].map((n) => ({ id: n, owner: 'alice', name: `repo${n}` }));
@@ -121,5 +124,38 @@ describe('plans', () => {
     t.db.prepare(`UPDATE users SET plan = 'pro' WHERE id = ?`).run(t.userId);
     set(hours(7), hours(7));
     expect(dueUsers(t.db)).toHaveLength(1); // pro syncs every 6h
+  });
+
+  it('reports accounts whose sync is running late', async () => {
+    const t = setup(repos());
+    const hours = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+    const set = (synced: string | null) =>
+      t.db.prepare('UPDATE users SET last_sync_at = ?, last_sync_started_at = ? WHERE id = ?').run(synced, synced, t.userId);
+
+    set(null); // never synced: signing in starts that sync, the schedule is not late
+    expect(overdue(dueUsers(t.db)).count).toBe(0);
+    set(hours(24.5)); // due, and picked up within the hour
+    expect(overdue(dueUsers(t.db)).count).toBe(0);
+    set(hours(30));
+    const behind = overdue(dueUsers(t.db));
+    expect(behind.count).toBe(1);
+    expect(behind.worstHours).toBeCloseTo(6, 1);
+  });
+
+  it("keeps a repository shared while another admin's plan includes sharing", async () => {
+    const t = setup(repos());
+    await t.sync();
+    const now = new Date().toISOString();
+    const bob = t.db.prepare(`INSERT INTO users (github_id, login, plan, created_at) VALUES (2, 'bob', 'pro', ?) RETURNING *`).get(now) as any;
+    t.db.prepare(`INSERT INTO user_repos (user_id, repo_id, relation, can_push, can_admin, added_at) VALUES (?, 1, 'collaborator', 1, 1, ?)`).run(bob.id, now);
+    t.db.prepare('UPDATE repos SET share_enabled = 1 WHERE id IN (1, 2)').run();
+    const shared = () => (t.db.prepare('SELECT id FROM repos WHERE share_enabled = 1 ORDER BY id').all() as Array<{ id: number }>).map((r) => r.id);
+
+    await t.sync(); // alice is on the free plan; repo 2 has no other admin
+    expect(shared()).toEqual([1]);
+
+    t.db.prepare(`UPDATE users SET plan = 'free' WHERE id = ?`).run(bob.id);
+    enforceLimits(t.db, { ...bob, plan: 'free' });
+    expect(shared()).toEqual([]);
   });
 });

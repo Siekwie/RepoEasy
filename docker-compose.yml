@@ -3,7 +3,9 @@ services:
     build: .
     restart: unless-stopped
     ports:
-      - "8787:8787"
+      # Published on this machine only. Put a reverse proxy in front of it, or set BIND=0.0.0.0
+      # to expose the port directly (Docker bypasses ufw and similar firewalls when it does).
+      - "${BIND:-127.0.0.1}:8787:8787"
     env_file: .env
     environment:
       HOST: 0.0.0.0

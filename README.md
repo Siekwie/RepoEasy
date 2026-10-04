@@ -66,7 +66,45 @@ one in `BASE_URL` are rejected.
 docker compose up -d
 ```
 
-Uses `.env` and stores the database in the `repoeasy-data` volume.
+Uses `.env` and stores the database in the `repoeasy-data` volume. Two things differ from running it
+directly:
+
+- Inside a container the server has to listen on every interface, so it cannot tell who is able to
+  reach it and treats itself as exposed: in single-user mode **set `APP_PASSWORD`**, or sign-in is
+  refused.
+- The port is published on `127.0.0.1` only. To reach it from other machines put a reverse proxy in
+  front (below), or set `BIND=0.0.0.0`. Docker publishes ports past `ufw` and similar firewalls.
+
+### Behind a reverse proxy
+
+Set `BASE_URL` to the public https address and `TRUST_PROXY=1` (the number of proxies in front).
+Without it every visitor appears to come from the proxy's address, and ten wrong passwords from one
+person lock everybody out of the sign-in page. Only set it when a proxy really is in front: it makes
+the server believe the `X-Forwarded-For` header.
+
+[deploy/](deploy) holds a complete setup for a small server: a shared Caddy container that gets the
+certificates ([deploy/proxy](deploy/proxy)), a compose file that puts RepoEasy on the same Docker
+network without publishing a port, and `deploy/deploy.sh`, which uploads the committed `HEAD` over
+ssh, rebuilds and restarts.
+
+## Backups
+
+`DATA_DIR` holds the only copy of the archived history, and GitHub cannot give lost days back. The
+server writes a consistent snapshot of the database to `DATA_DIR/backups` once a day and keeps the
+newest seven (`BACKUP_INTERVAL_HOURS`, `BACKUP_KEEP`, `BACKUP_DIR`; an interval of 0 switches it off).
+Snapshots are written while the server runs and each one is a complete SQLite file.
+
+They protect against a damaged database or a bad change, not against losing the disk: copy the
+folder somewhere else regularly, for example
+
+```bash
+scp -r server:/srv/repoeasy/data/backups ./repoeasy-backups
+```
+
+To restore, stop the server, replace `DATA_DIR/repoeasy.db` with a snapshot, delete
+`repoeasy.db-wal` and `repoeasy.db-shm` if they exist, and start it again. `secret.key` (or
+`APP_SECRET`) is deliberately not part of a snapshot; without the same secret, accounts only need to
+sign in again.
 
 ## Sign in with GitHub (several users)
 
@@ -113,9 +151,9 @@ Without billing every account has everything. `ADMIN_LOGINS` (GitHub logins or, 
 user ids) unlocks everything for those accounts on a hosted instance. `DEMO=1` adds a read-only demo account with sample data to the sign-in page.
 
 Cost: a sync is about one GraphQL call per 15 repositories plus four to six REST calls per tracked
-repository, all made with the user's own GitHub token and rate limit, one account at a time. The
-server itself only needs a small VPS and a disk for the SQLite file. Back up `DATA_DIR`; it holds the
-only copy of the archived history.
+repository, all made with the user's own GitHub token and rate limit, three accounts at a time
+(`SYNC_ACCOUNTS`). The server itself only needs a small VPS and a disk for the SQLite file. See
+[Backups](#backups): `DATA_DIR` holds the only copy of the archived history.
 
 ## API
 
@@ -133,6 +171,7 @@ curl -H "Authorization: Bearer re_..." https://stats.example.com/api/repos
 npm run dev        # API on :8787 and Vite on :5173
 npm test
 npm run typecheck
+npm run lint
 ```
 
 Setting `DEMO=1` and `SYNC_DISABLED=1` in `.env` gives a server with sample data and no GitHub access.
@@ -148,6 +187,8 @@ Setting `DEMO=1` and `SYNC_DISABLED=1` in `.env` gives a server with sample data
   and never lowers a stored day, so partial "today" values are corrected by later syncs.
 - "Unique visitors" over a period is the sum of daily uniques; GitHub does not report uniques across
   days, so someone who visits on three days counts three times.
+- Commits are read from the default branch. Each fetch reaches 30 days behind the newest stored
+  commit, so a branch merged later with older commit dates is still picked up.
 - Referrers and paths exist only as 14-day totals. Lifetime figures add up snapshots taken 14 days
   apart, which covers the archived period without counting a visit twice.
 - Stars before tracking began come from GitHub's star-history endpoint; after that, from daily
@@ -162,7 +203,7 @@ Setting `DEMO=1` and `SYNC_DISABLED=1` in `.env` gives a server with sample data
 - The overview adds up every daily snapshot of every repository on each load. That is instant for a
   few hundred repositories and a few years of history; very large organisations would want a
   pre-aggregated table.
-- Accounts are synced one after another. One account with thousands of tracked repositories delays
-  the others.
-- The Dockerfile and the GitHub App sign-in path are written from the documentation and have not been
-  run end to end yet; the OAuth App path and the single-user token path have.
+- Accounts are synced a few at a time. The log says so when accounts fall more than an hour behind
+  their schedule; raise `SYNC_ACCOUNTS` then.
+- The GitHub App sign-in path is written from the documentation and has not been run end to end yet;
+  the OAuth App path, the single-user token path and the Docker setup have.

@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
+  "files": { "includes": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts", "scripts/**", "*.ts"] },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "style": { "noNonNullAssertion": "off" },
+      "a11y": { "noNoninteractiveTabindex": "off", "useSemanticElements": "off" }
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/web/components/Heatmap.tsx"],
+      "linter": {
+        "rules": {
+          "a11y": { "noNoninteractiveElementToInteractiveRole": "off", "noAriaHiddenOnFocusable": "off", "noSvgWithoutTitle": "off" }
+        }
+      }
+    },
+    {
+      "includes": ["test/**"],
+      "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+    }
+  ]
+}

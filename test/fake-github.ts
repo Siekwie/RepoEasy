@@ -132,7 +132,8 @@ export function fakeGitHub(state: FakeState): typeof fetch {
         const since = url.searchParams.get('since');
         return json(
           (repo.commits ?? [])
-            .filter((c) => !since || c.date >= since)
+            .filter((c) => !since || Date.parse(c.date) >= Date.parse(since))
+            .sort((a, b) => Date.parse(b.date) - Date.parse(a.date)) // GitHub lists newest first
             .map((c) => ({
               sha: c.sha, html_url: `https://github.com/${repo.owner}/${repo.name}/commit/${c.sha}`,
               commit: { message: c.message, author: { name: 'Test User', date: c.date }, committer: { date: c.date } },

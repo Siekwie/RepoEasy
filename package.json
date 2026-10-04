@@ -16,6 +16,7 @@
     "build:server": "esbuild src/server/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/server.mjs",
     "start": "node dist/server.mjs",
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "lint": "biome lint --error-on-warnings",
     "test": "vitest run"
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "hono": "^4.13.12"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.15",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.5",
     "@types/react": "^19.3.0",

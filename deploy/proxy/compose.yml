@@ -1,0 +1,28 @@
+# The one reverse proxy of the server, shared by every project on it. Lives in /srv/proxy.
+# It terminates TLS (certificates from Let's Encrypt, renewed automatically) and forwards to
+# containers on the "web" network by name. Each project drops a site file into caddy/sites/.
+#
+# Once per server:  docker network create --ipv6 web
+name: proxy
+
+services:
+  caddy:
+    image: caddy:2
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [web]
+
+networks:
+  web:
+    external: true
+
+volumes:
+  caddy-data:
+  caddy-config:

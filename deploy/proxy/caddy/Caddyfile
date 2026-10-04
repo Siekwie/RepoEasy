@@ -1,0 +1,3 @@
+# One file per project in sites/, e.g. sites/repoeasy.caddy. After changing one:
+#   docker exec caddy caddy reload --config /etc/caddy/Caddyfile
+import sites/*.caddy

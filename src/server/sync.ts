@@ -153,9 +153,21 @@ export function upsertRepo(db: DB, r: GqlRepo): number {
 export function enforceLimits(db: DB, user: UserRow): void {
   const limits = planLimits(effectivePlan(user));
   if (!limits.sharePages) {
-    db.prepare(
-      'UPDATE repos SET share_enabled = 0 WHERE share_enabled = 1 AND id IN (SELECT repo_id FROM user_repos WHERE user_id = ? AND can_admin = 1)',
-    ).run(user.id);
+    // Sharing belongs to the repo, not to one account: it stays on while any other admin's plan includes it.
+    const shared = db
+      .prepare(
+        'SELECT r.id FROM repos r JOIN user_repos ur ON ur.repo_id = r.id WHERE r.share_enabled = 1 AND ur.user_id = ? AND ur.can_admin = 1',
+      )
+      .all(user.id) as Array<{ id: number }>;
+    const otherAdmins = db.prepare(
+      `SELECT u.* FROM user_repos ur JOIN users u ON u.id = ur.user_id
+       WHERE ur.repo_id = ? AND ur.user_id != ? AND ur.can_admin = 1 AND ur.gone = 0 AND ur.relation != 'followed'`,
+    );
+    const unshare = db.prepare('UPDATE repos SET share_enabled = 0 WHERE id = ?');
+    for (const { id } of shared) {
+      const covered = (otherAdmins.all(id, user.id) as UserRow[]).some((admin) => planLimits(effectivePlan(admin)).sharePages);
+      if (!covered) unshare.run(id);
+    }
   }
   const max = limits.trackedRepos;
   if (max === null) return;
@@ -354,8 +366,15 @@ interface RestCommit {
   author: { login: string; avatar_url: string } | null;
 }
 
+/**
+ * A merged or rebased branch puts commits on the default branch that are dated before the newest
+ * one already stored, so each fetch reaches back this far. Rows are keyed by SHA: overlap is free.
+ */
+const COMMIT_OVERLAP_DAYS = 30;
+
 export async function syncCommits(db: DB, gh: GitHub, repo: RepoRow): Promise<void> {
   const latest = (db.prepare('SELECT MAX(committed_at) m FROM commits WHERE repo_id = ?').get(repo.id) as { m: string | null }).m;
+  const since = latest ? new Date(Date.parse(latest) - COMMIT_OVERLAP_DAYS * 86_400_000).toISOString() : undefined;
   const insert = db.prepare(
     `INSERT OR REPLACE INTO commits (repo_id, sha, message, author_login, author_name, author_avatar_url, committed_at, html_url)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -363,7 +382,7 @@ export async function syncCommits(db: DB, gh: GitHub, repo: RepoRow): Promise<vo
   let url: string | null = `/repos/${repo.owner}/${repo.name}/commits`;
   for (let page = 0; url && page < config.sync.commitPages; page++) {
     const res: Awaited<ReturnType<typeof gh.rest<RestCommit[]>>> = await gh.rest<RestCommit[]>(url, {
-      query: page === 0 ? { per_page: 100, since: latest ?? undefined } : undefined,
+      query: page === 0 ? { per_page: 100, since } : undefined,
       allow: [403, 404, 409], // 409 = empty repository
     });
     if (res.status === 409) break; // empty repository: nothing to fetch, and that is final
@@ -470,7 +489,9 @@ async function runSync(db: DB, userId: number, deps: SyncDeps, step: (s: string)
   const stale = followed.filter((f) => minutesSince(f.meta_synced_at) > 60).map((f) => f.node_id);
   if (stale.length) {
     const nodes = await fetchReposByNodeId(gh, stale);
-    db.transaction(() => nodes.forEach((n) => upsertRepo(db, n)))();
+    db.transaction(() => {
+      for (const n of nodes) upsertRepo(db, n);
+    })();
   }
 
   const work = db

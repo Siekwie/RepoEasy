@@ -33,6 +33,8 @@ const local = LOOPBACK.includes(new URL(baseUrl).hostname);
 const host = str('HOST') ?? '127.0.0.1';
 const extraOrigins = (str('ALLOWED_ORIGINS') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const githubClientId = str('GITHUB_CLIENT_ID');
+/** TRUST_PROXY is the number of reverse proxies in front of the server; "true" means one. */
+const trustProxy = flag('TRUST_PROXY') ? 1 : Math.max(0, Math.floor(int('TRUST_PROXY', 0)));
 /** More than one person can have an account here: user input gets hosted-service treatment. */
 const multiUser = Boolean(githubClientId) || Boolean(stripeSecretKey);
 
@@ -41,6 +43,12 @@ export const config = {
   host,
   baseUrl,
   multiUser,
+  /**
+   * How many reverse proxies sit in front of the server. Each one appends the address it saw to
+   * X-Forwarded-For, so with n proxies the nth entry from the right is the real client and
+   * everything left of it is whatever the client chose to send.
+   */
+  trustProxy,
   /**
    * Hostnames this server answers API and auth requests for. Anything else is
    * refused, which stops DNS-rebinding pages from talking to a local instance.
@@ -93,6 +101,16 @@ export const config = {
     /** Star-history pages (30 weeks each) fetched per repo per sync while backfilling. */
     starPages: int('SYNC_STAR_PAGES', 20),
     concurrency: int('SYNC_CONCURRENCY', 4),
+    /** Accounts synced at the same time by the scheduler. */
+    accounts: Math.max(1, int('SYNC_ACCOUNTS', 3)),
+  },
+
+  backup: {
+    dir: resolve(str('BACKUP_DIR') ?? join(dataDir, 'backups')),
+    /** Hours between database snapshots; 0 switches them off. */
+    intervalHours: int('BACKUP_INTERVAL_HOURS', 24),
+    /** Snapshots kept; older ones are deleted. */
+    keep: Math.max(1, int('BACKUP_KEEP', 7)),
   },
 
   billing: {

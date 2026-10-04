@@ -1,12 +1,16 @@
 import { createHmac } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseRepoName } from '../src/server/app.ts';
+import { parseRepoName } from '../src/shared/repo-input.ts';
+import { backupDb, backupDue, listBackups } from '../src/server/backup.ts';
 import { badgeSvg, compact } from '../src/server/badges.ts';
 import { verifyStripeSignature } from '../src/server/billing.ts';
 import { decrypt, encrypt } from '../src/server/crypto.ts';
 import { addDays, dayOf, openDb } from '../src/server/db.ts';
 import { crossedMilestone, isPublicAddress } from '../src/server/events.ts';
-import { csv } from '../src/server/http.ts';
+import { csv, forwardedAddress } from '../src/server/http.ts';
 
 describe('crypto', () => {
   it('round-trips and never stores the plain token', () => {
@@ -29,6 +33,7 @@ describe('helpers', () => {
     expect(parseRepoName(' https://github.com/BurntSushi/ripgrep/issues/1 ')).toEqual({ owner: 'BurntSushi', name: 'ripgrep' });
     expect(parseRepoName('git@github.com:vladkens/ghstats.git')).toEqual({ owner: 'vladkens', name: 'ghstats' });
     expect(parseRepoName('github.com/a/b.js')).toEqual({ owner: 'a', name: 'b.js' });
+    expect(parseRepoName('ssh://git@github.com/a/b.git')).toEqual({ owner: 'a', name: 'b' });
     expect(parseRepoName('just-a-name')).toBeNull();
     expect(parseRepoName('https://example.com/a/b')).toBeNull();
   });
@@ -55,10 +60,50 @@ describe('helpers', () => {
     expect(dayOf('2026-10-04T23:59:59Z')).toBe('2026-10-04');
   });
 
+  it('reads the client address a trusted proxy reported', () => {
+    expect(forwardedAddress('203.0.113.7', 1)).toBe('203.0.113.7');
+    // anything left of the trusted hops was sent by the client itself
+    expect(forwardedAddress('1.1.1.1, 203.0.113.7', 1)).toBe('203.0.113.7');
+    expect(forwardedAddress('1.1.1.1, 203.0.113.7, 10.0.0.2', 2)).toBe('203.0.113.7');
+    expect(forwardedAddress('203.0.113.7', 2)).toBeNull();
+    expect(forwardedAddress(undefined, 1)).toBeNull();
+    expect(forwardedAddress('203.0.113.7', 0)).toBeNull();
+  });
+
   it('applies migrations once', () => {
     const db = openDb(':memory:');
     expect(db.pragma('user_version', { simple: true })).toBeGreaterThan(0);
     expect(() => db.prepare('SELECT * FROM traffic_daily').all()).not.toThrow();
+  });
+});
+
+describe('backups', () => {
+  it('writes restorable snapshots and keeps only the newest', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'repoeasy-backup-'));
+    try {
+      const db = openDb(':memory:');
+      db.prepare(`INSERT INTO users (login, created_at) VALUES ('alice', '2026-01-01')`).run();
+      expect(backupDue(dir, 24)).toBe(true);
+
+      const start = Date.UTC(2026, 0, 1, 3, 0, 0);
+      const day = 86_400_000;
+      for (let i = 0; i < 4; i++) await backupDb(db, dir, 3, new Date(start + i * day));
+      expect(listBackups(dir).map((b) => b.file)).toEqual([
+        'repoeasy-20260104T030000Z.db',
+        'repoeasy-20260103T030000Z.db',
+        'repoeasy-20260102T030000Z.db',
+      ]);
+      expect(backupDue(dir, 24, start + 3 * day + 3_600_000)).toBe(false);
+      expect(backupDue(dir, 24, start + 4 * day)).toBe(true);
+      expect(backupDue(dir, 0, start + 400 * day)).toBe(false); // switched off
+
+      const copy = openDb(join(dir, 'repoeasy-20260104T030000Z.db'));
+      expect(copy.prepare('SELECT login FROM users').get()).toEqual({ login: 'alice' });
+      copy.close();
+      db.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 

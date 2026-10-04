@@ -122,6 +122,24 @@ describe('repo lifecycle', () => {
     await t.sync();
     expect(t.state.calls.filter((c) => c.endsWith('/commits'))).toHaveLength(0);
   });
+
+  it('picks up commits that reach the default branch later with an older date', async () => {
+    const repo = {
+      id: 10, owner: 'alice', name: 'lib', pushedAt: `${d(3)}T12:00:00Z`,
+      commits: [{ sha: 'a'.repeat(40), message: 'On main', date: `${d(3)}T10:00:00Z` }],
+    };
+    const t = setup([repo]);
+    await t.sync();
+
+    // a branch written a week before the newest stored commit is merged
+    repo.commits.push(
+      { sha: 'b'.repeat(40), message: 'From the branch', date: `${d(10)}T10:00:00Z` },
+      { sha: 'c'.repeat(40), message: 'Merge', date: `${d(1)}T10:00:00Z` },
+    );
+    repo.pushedAt = `${d(1)}T10:00:00Z`;
+    await t.sync();
+    expect(q.commits(t.db, q.oneRepo(1), 10).map((c) => c.message)).toEqual(['Merge', 'On main', 'From the branch']);
+  });
 });
 
 describe('star history', () => {

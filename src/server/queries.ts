@@ -527,7 +527,7 @@ export function overview(db: DB, userId: number, range: Range): Overview {
   };
 }
 
-export function syncStatus(db: DB, user: UserRow): SyncStatus {
+export function syncStatus(user: UserRow): SyncStatus {
   const progress = syncProgress(user.id);
   const interval = planLimits(effectivePlan(user)).syncIntervalHours * 3_600_000;
   return {
@@ -562,7 +562,7 @@ export function me(db: DB, user: UserRow): Me {
     limits: planLimits(plan),
     usage,
     settings: userSettings(user),
-    sync: syncStatus(db, user),
+    sync: syncStatus(user),
     billing: { hasSubscription: Boolean(user.stripe_subscription_id), renewsAt: user.plan_expires_at },
   };
 }

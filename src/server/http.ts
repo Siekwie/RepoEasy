@@ -133,10 +133,22 @@ export const trustedHost: MiddlewareHandler<Env> = async (c, next) => {
   await next();
 };
 
-/** Network address of the caller, for rate limiting. */
+/**
+ * The client address in an X-Forwarded-For header written by `proxies` trusted proxies.
+ * Counted from the right: entries further left were supplied by the client and can be forged.
+ */
+export function forwardedAddress(header: string | undefined, proxies: number): string | null {
+  const hops = (header ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return (proxies > 0 && hops[hops.length - proxies]) || null;
+}
+
+/**
+ * Network address of the caller, for rate limiting. Behind a reverse proxy the socket is the
+ * proxy's, so with TRUST_PROXY the address comes from X-Forwarded-For instead.
+ */
 export function clientAddress(c: Ctx): string {
   const incoming = (c.env as { incoming?: { socket?: { remoteAddress?: string } } } | undefined)?.incoming;
-  return incoming?.socket?.remoteAddress ?? 'unknown';
+  return forwardedAddress(c.req.header('x-forwarded-for'), config.trustProxy) ?? incoming?.socket?.remoteAddress ?? 'unknown';
 }
 
 export async function body<T extends object>(c: Ctx): Promise<Partial<T>> {
@@ -157,5 +169,5 @@ export function csv(header: string[], rows: Array<Array<string | number | null>>
     if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  return [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+  return `${[header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n')}\r\n`;
 }

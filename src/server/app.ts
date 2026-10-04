@@ -11,6 +11,7 @@ import type {
   RepoPatch,
   UserSettings,
 } from '../shared/api.ts';
+import { parseRepoName } from '../shared/repo-input.ts';
 import { BADGE_METRICS, badgeSvg, repoBadge } from './badges.ts';
 import { applyStripeEvent, cancelSubscription, checkoutUrl, portalUrl, verifyStripeSignature } from './billing.ts';
 import { config, effectivePlan, planLimits, VERSION } from './config.ts';
@@ -45,16 +46,6 @@ export interface AppDeps {
 }
 
 const OAUTH_STATE_COOKIE = 're_oauth_state';
-
-/** Accepts `owner/name`, a github.com URL, or a clone URL. */
-export function parseRepoName(input: string): { owner: string; name: string } | null {
-  const cleaned = input
-    .trim()
-    .replace(/^(https?:\/\/)?(www\.)?github\.com\//i, '')
-    .replace(/^git@github\.com:/i, '');
-  const match = /^([A-Za-z0-9](?:[A-Za-z0-9-]{0,38}))\/([A-Za-z0-9._-]{1,100}?)(?:\.git)?(?:[/?#].*)?$/.exec(cleaned);
-  return match ? { owner: match[1]!, name: match[2]! } : null;
-}
 
 export function createApp(db: DB, deps: AppDeps = {}) {
   const app = new Hono<Env>();
@@ -282,11 +273,11 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     return c.json({ ok: true });
   });
 
-  app.get('/api/sync', (c) => c.json(q.syncStatus(db, c.var.user)));
+  app.get('/api/sync', (c) => c.json(q.syncStatus(c.var.user)));
 
   app.post('/api/sync', (c) => {
     const user = c.var.user;
-    const status = q.syncStatus(db, user);
+    const status = q.syncStatus(user);
     if (!status.running) {
       const sinceLast = user.last_sync_started_at ? Date.now() - Date.parse(user.last_sync_started_at) : Infinity;
       const cooldown = config.sync.manualCooldownMinutes * 60_000;
@@ -295,7 +286,7 @@ export function createApp(db: DB, deps: AppDeps = {}) {
       }
       void syncUser(db, user.id, { fetchFn: deps.fetchFn });
     }
-    return c.json(q.syncStatus(db, getUser(user.id)));
+    return c.json(q.syncStatus(getUser(user.id)));
   });
 
   app.get('/api/overview', (c) => c.json(q.overview(db, c.var.user.id, q.parseRange(c.req.query('range')))));
