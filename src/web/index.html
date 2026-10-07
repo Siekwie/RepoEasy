@@ -18,10 +18,15 @@
     <meta property="og:image:alt" content="A long traffic chart of which GitHub only shows the last 14 days" />
     <meta name="twitter:card" content="summary_large_image" />
     <link rel="canonical" href="__ORIGIN__/" />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b6b63'/%3E%3Cpath d='M8 23V15M14 23V10M20 23V13M26 23V7' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E"
-    />
+    <!-- real files, not a data: URI: search engines only show an icon they can fetch (Google wants a multiple of 48px) -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-96.png" type="image/png" sizes="96x96" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- the name search results show next to the icon, instead of the bare domain -->
+    <script type="application/ld+json">
+      { "@context": "https://schema.org", "@type": "WebSite", "name": "RepoEasy", "url": "__ORIGIN__/" }
+    </script>
     <script>
       try {
         var t = localStorage.getItem('repoeasy-theme');
