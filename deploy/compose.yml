@@ -19,6 +19,39 @@ services:
     # No published ports: only the proxy, on the same Docker network, can reach the app.
     networks: [web]
 
+  # The owner's admin interface (src/server/admin-web.ts): accounts, usage and the visit funnel.
+  # It has no login, so it must not be reachable by anyone else: it is not on the proxy's network,
+  # and its port is published on the server's loopback only. Open it from your PC through SSH:
+  #   ssh -N -L 8793:127.0.0.1:8793 wiestlab        then  http://localhost:8793/
+  repoeasy-admin:
+    build: ./app
+    container_name: repoeasy-admin
+    restart: unless-stopped
+    command: ["node", "dist/admin.mjs"]
+    env_file: .env
+    environment:
+      ADMIN_HOST: 0.0.0.0
+      ADMIN_PORT: 8793
+      DATA_DIR: /data
+    volumes:
+      # the same database as the site; this process opens it read-only
+      - ./data:/data
+    # Never change this to "8793:8793": Docker publishes ports past ufw, to the whole internet.
+    ports:
+      - "127.0.0.1:8793:8793"
+    networks: [admin]
+    # the site creates and migrates the database when it starts
+    depends_on:
+      repoeasy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8793/healthz').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+
 networks:
   web:
     external: true
+  # Only the admin container is on this one; the proxy and the other sites can't reach it.
+  admin:

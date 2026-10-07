@@ -91,8 +91,6 @@ export interface Me {
   plan: Plan;
   /** Demo accounts are read-only: every mutation returns 403. */
   isDemo: boolean;
-  /** Listed in ADMIN_LOGINS: may open the admin page. */
-  isAdmin: boolean;
   limits: PlanLimits;
   usage: { tracked: number; followed: number };
   settings: UserSettings;
@@ -388,7 +386,7 @@ export interface AdminUser {
   source: string | null;
 }
 
-/** GET /api/admin/stats (accounts in ADMIN_LOGINS only; 404 for everyone else). The demo account is left out. */
+/** GET /api/admin/stats on the admin interface (its own loopback listener, not the public site). The demo account is left out. */
 export interface AdminStats {
   generatedAt: string;
   accounts: {
@@ -437,7 +435,6 @@ for the GET endpoints: API tokens are read-only):
 
   GET    /api/info                         → AppInfo                 (no auth)
   POST   /api/hit           { ref?, referrer? } → { source }         (no auth; counts one landing-page view)
-  GET    /api/admin/stats                  → AdminStats              (ADMIN_LOGINS only)
   GET    /api/me                           → Me                      (401 when signed out)
   PATCH  /api/me/settings   Partial<UserSettings> → Me
   DELETE /api/me                           → { ok: true }            (deletes account + data)
@@ -471,4 +468,8 @@ for the GET endpoints: API tokens are read-only):
   POST   /auth/local        { password? }  → { ok: true }
   POST   /auth/demo         { src? }       → { ok: true }
   POST   /auth/logout                      → { ok: true }
+
+The admin interface is a listener of its own (src/server/admin-web.ts), on loopback and with no login:
+
+  GET    /api/admin/stats                  → AdminStats
 */

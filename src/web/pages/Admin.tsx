@@ -1,8 +1,6 @@
 import { useMemo } from 'react';
-import { Navigate } from 'react-router-dom';
-import type { AdminUser, VisitFunnel } from '../../shared/api.ts';
-import { useApp } from '../context.tsx';
-import { api } from '../lib/api.ts';
+import type { AdminStats, AdminUser, VisitFunnel } from '../../shared/api.ts';
+import { get } from '../lib/api.ts';
 import type { ChartSeries } from '../lib/chart-math.ts';
 import { fmtDateTime, relative } from '../lib/format.ts';
 import { useFetch, useTitle } from '../lib/hooks.ts';
@@ -38,10 +36,11 @@ function FunnelCells({ f }: { f: VisitFunnel }) {
   );
 }
 
+/** The whole admin interface. Mounted by admin/main.tsx; the public app has no route to it. */
 export function Admin() {
   useTitle('Admin');
-  const { me } = useApp();
-  const stats = useFetch(() => api.adminStats(), []);
+  // answered by the admin interface's own listener (src/server/admin-web.ts), not by the public site
+  const stats = useFetch(() => get<AdminStats>('/api/admin/stats'), []);
   const daily = stats.data?.funnel.daily;
   const series = useMemo<ChartSeries[]>(() => {
     const of = (key: keyof VisitFunnel) => (daily ?? []).map((d) => ({ day: d.day, v: d[key] }));
@@ -51,8 +50,6 @@ export function Admin() {
       { key: 'signup', label: 'New accounts', color: 'var(--s3)', type: 'line', data: of('signup') },
     ];
   }, [daily]);
-
-  if (!me?.isAdmin) return <Navigate to="/" replace />;
 
   return (
     <>

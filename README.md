@@ -104,8 +104,9 @@ the server believe the `X-Forwarded-For` header.
 
 [deploy/](deploy) holds a complete setup for a small server: a shared Caddy container that gets the
 certificates ([deploy/proxy](deploy/proxy)), a compose file that puts RepoEasy on the same Docker
-network without publishing a port, and `deploy/deploy.sh`, which uploads the committed `HEAD` over
-ssh, rebuilds and restarts.
+network without publishing a port (and the [admin interface](#admin-interface) on the server's
+loopback only), and `deploy/deploy.sh`, which uploads the committed `HEAD` over ssh, rebuilds and
+restarts.
 
 ## Backups
 
@@ -179,11 +180,34 @@ pages show (default `$3` and `$29`).
 Without billing every account has everything. `ADMIN_LOGINS` (GitHub logins or, better, numeric
 user ids) unlocks everything for those accounts on a hosted instance. `DEMO=1` adds a read-only demo account with sample data to the sign-in page.
 
-### Admin page
+### Admin interface
 
-Accounts in `ADMIN_LOGINS` get an Admin page: accounts (total, new, active, free and Pro), tracked
-and followed repositories, share pages, accounts whose sync is failing, and a funnel of the last 30
-days: start page views, demo opened, sign-ins started, new accounts, per day and per source.
+Accounts (total, new, active, free and Pro), tracked and followed repositories, share pages,
+accounts whose sync is failing, and a funnel of the last 30 days: start page views, demo opened,
+sign-ins started, new accounts, per day and per source.
+
+It is not part of the public site. It is a second process from the same build
+(`src/server/admin-web.ts`, started with `npm run admin` or as the `repoeasy-admin` container in
+[deploy/compose.yml](deploy/compose.yml)) that listens on `127.0.0.1:8793` (`ADMIN_HOST`,
+`ADMIN_PORT`) and only reads the database. On Windows, run
+[`deploy/repoeasy-admin.cmd`](deploy/repoeasy-admin.cmd) (it opens the tunnel and the browser).
+Anywhere else:
+
+```sh
+ssh -N -L 8793:127.0.0.1:8793 your-server      # leave it running, then open http://localhost:8793/
+```
+
+**It has no login, on purpose: your SSH key is the login.** The `repoeasy-admin` container is not on
+the proxy's network, and its port is published on the server's loopback (`127.0.0.1:8793`), so it
+can only be reached from the server itself, which is what the tunnel does. On top of that it only
+answers requests addressed to `localhost`, only `GET` requests, and its database connection is
+read-only. Keep it that way:
+
+- Never change the port line in `compose.yml` to `"8793:8793"`: Docker publishes ports past `ufw`.
+- Never add it to a Caddy site. If it should ever be reachable without the tunnel, it needs a
+  real login first.
+- If it ever gets a form that changes something, that form needs a token other sites can't read
+  and a check of the `Origin` header first.
 
 The funnel is counted by the server itself. A view of the start page adds one to a counter for that
 day and source, where the source is the `?ref=` tag of the link (`https://stats.example.com/?ref=dev.to`)
@@ -225,8 +249,8 @@ npm run lint
 
 Setting `DEMO=1` and `SYNC_DISABLED=1` in `.env` gives a server with sample data and no GitHub access.
 
-- `src/server` – Hono app, GitHub client, sync engine, scheduler, SQLite schema and queries
-- `src/web` – React single-page app, no UI framework; the charts are its own SVG, with d3-shape for the curve geometry
+- `src/server` – Hono app, GitHub client, sync engine, scheduler, SQLite schema and queries; `admin-web.ts` is the admin interface's own listener
+- `src/web` – React single-page app, no UI framework; the charts are its own SVG, with d3-shape for the curve geometry. `src/web/admin` mounts the Admin page on its own and is built into `dist/admin`, apart from the public `dist/web`
 - `src/shared/api.ts` – the API contract both sides compile against
 - `test` – the sync engine and HTTP API against an in-memory fake GitHub
 

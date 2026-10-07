@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Deploys the committed HEAD to the server: uploads the source, rebuilds the image, restarts the
-# container and waits until it reports healthy. Uncommitted changes are not deployed.
+# containers (the site and the admin interface) and waits until both report healthy. Uncommitted
+# changes are not deployed.
 #
 #   deploy/deploy.sh [ssh-host]      (default: wiestlab; run from Git Bash on Windows)
 #
@@ -29,10 +30,14 @@ ssh "$HOST" "set -e
     cp app/deploy/repoeasy.caddy $SITES/repoeasy.caddy
     docker exec caddy caddy reload --config /etc/caddy/Caddyfile
   fi
+  healthy() { [ \"\$(docker inspect -f '{{.State.Health.Status}}' \$1 2>/dev/null)\" = healthy ]; }
   for i in \$(seq 1 30); do
-    [ \"\$(docker inspect -f '{{.State.Health.Status}}' repoeasy 2>/dev/null)\" = healthy ] && { echo 'repoeasy is healthy'; exit 0; }
+    healthy repoeasy && healthy repoeasy-admin && { echo 'repoeasy and repoeasy-admin are healthy'; exit 0; }
     sleep 2
   done
-  echo 'repoeasy did not become healthy:' >&2
-  docker logs --tail 40 repoeasy >&2
+  for c in repoeasy repoeasy-admin; do
+    healthy \$c && continue
+    echo \"\$c did not become healthy:\" >&2
+    docker logs --tail 40 \$c >&2
+  done
   exit 1"

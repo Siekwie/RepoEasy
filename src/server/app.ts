@@ -12,10 +12,9 @@ import type {
   UserSettings,
 } from '../shared/api.ts';
 import { parseRepoName } from '../shared/repo-input.ts';
-import { adminStats } from './admin.ts';
 import { BADGE_METRICS, badgeSvg, repoBadge } from './badges.ts';
 import { applyStripeEvent, cancelSubscription, checkoutUrl, portalUrl, verifyStripeSignature } from './billing.ts';
-import { config, effectivePlan, isAdmin, planLimits, VERSION } from './config.ts';
+import { config, effectivePlan, planLimits, VERSION } from './config.ts';
 import { randomToken, safeEqual, sha256 } from './crypto.ts';
 import { nowIso, type DB, type RepoRow, type UserRow } from './db.ts';
 import { Codeberg, fetchCodebergRepo } from './codeberg.ts';
@@ -649,14 +648,6 @@ export function createApp(db: DB, deps: AppDeps = {}) {
     } catch (err) {
       return fail('bad-request', err instanceof Error ? err.message : 'Could not open the billing portal.');
     }
-  });
-
-  // ---- Admin ----
-
-  app.get('/api/admin/stats', (c) => {
-    // to everyone else this endpoint does not exist
-    if (c.var.user.is_demo || !isAdmin(c.var.user)) return fail('not-found', 'Unknown API endpoint.');
-    return c.json(adminStats(db));
   });
 
   app.all('/api/*', () => fail('not-found', 'Unknown API endpoint.'));

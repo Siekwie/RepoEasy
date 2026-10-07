@@ -250,6 +250,16 @@ export function openDb(path: string): DB {
   return db;
 }
 
+/**
+ * A connection that can only read, for the admin interface: it shares the file with the running
+ * server, which creates and migrates it, and can never change the archive itself.
+ */
+export function openDbReadOnly(path: string): DB {
+  const db = new Database(path, { readonly: true, fileMustExist: true });
+  db.pragma('busy_timeout = 5000');
+  return db;
+}
+
 export const nowIso = () => new Date().toISOString();
 
 /** UTC calendar day `YYYY-MM-DD`. */

@@ -23,7 +23,7 @@ import type {
   TrafficSeries,
   TrafficTotals,
 } from '../shared/api.ts';
-import { config, effectivePlan, isAdmin, planLimits } from './config.ts';
+import { config, effectivePlan, planLimits } from './config.ts';
 import { addDays, dayOf, type DB, type RepoRow, type UserRepoRow, type UserRow } from './db.ts';
 import { syncProgress, userSettings } from './sync.ts';
 
@@ -563,7 +563,6 @@ export function me(db: DB, user: UserRow): Me {
     avatarUrl: user.avatar_url,
     plan,
     isDemo: Boolean(user.is_demo),
-    isAdmin: !user.is_demo && isAdmin(user),
     limits: planLimits(plan),
     usage,
     settings: userSettings(user),

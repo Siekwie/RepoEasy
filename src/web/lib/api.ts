@@ -1,5 +1,4 @@
 import type {
-  AdminStats,
   ApiError,
   ApiToken,
   ApiTokenCreated,
@@ -75,7 +74,7 @@ export async function download(path: string, fallbackName: string): Promise<{ bl
   return { blob: await res.blob(), filename: filenameFromDisposition(res.headers.get('content-disposition'), fallbackName) };
 }
 
-const get = <T>(p: string) => request<T>('GET', p);
+export const get = <T>(p: string) => request<T>('GET', p);
 const send = <T>(m: string, p: string, b?: unknown) => request<T>(m, p, b);
 const enc = encodeURIComponent;
 
@@ -109,7 +108,6 @@ export const api = {
   authLocal: (password?: string) => send<{ ok: true }>('POST', '/auth/local', password ? { password } : {}),
   authDemo: (src: string) => send<{ ok: true }>('POST', '/auth/demo', { src }),
   hit: (ref: string, referrer: string) => send<{ source: string }>('POST', '/api/hit', { ref, referrer }),
-  adminStats: () => get<AdminStats>('/api/admin/stats'),
   logout: () => send<{ ok: true }>('POST', '/auth/logout'),
 };
 

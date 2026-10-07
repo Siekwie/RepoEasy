@@ -93,6 +93,12 @@ export const config = {
   demo: flag('DEMO'),
   /** Comma-separated GitHub logins or numeric user ids that always get every feature on a hosted instance. */
   adminLogins: list('ADMIN_LOGINS', ',').map((s) => s.toLowerCase()),
+  /** The owner's admin interface (admin-web.ts): a listener of its own with no login, so it stays on loopback. */
+  admin: {
+    host: str('ADMIN_HOST') ?? '127.0.0.1',
+    port: int('ADMIN_PORT', 8793),
+    webDir: resolve(str('ADMIN_WEB_DIR') ?? './dist/admin'),
+  },
 
   /**
    * Who runs this instance. With a name and an address the imprint, privacy and terms pages are
@@ -179,7 +185,7 @@ export function planLimits(plan: Plan): PlanLimits {
   return limits[plan];
 }
 
-/** Listed in ADMIN_LOGINS: every feature on a hosted instance, and the admin page. */
+/** Listed in ADMIN_LOGINS: every feature on a hosted instance. */
 export function isAdmin(user: { login: string; github_id: number | null }): boolean {
   // ids are safer than logins, which can be renamed and re-registered by someone else
   return config.adminLogins.includes(user.login.toLowerCase()) || (user.github_id !== null && config.adminLogins.includes(String(user.github_id)));
