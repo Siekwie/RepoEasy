@@ -48,7 +48,8 @@ export function PctDelta({ cur, prev, label }: { cur: number; prev: number | nul
   );
 }
 
-export function Tile(props: { label: string; value: number | null | undefined; sub?: ReactNode; icon?: ReactNode; hint?: string }) {
+/** `trend`: a small sparkline shown beside the value while the tile is wide enough for both. */
+export function Tile(props: { label: string; value: number | null | undefined; sub?: ReactNode; icon?: ReactNode; hint?: string; trend?: ReactNode }) {
   return (
     <div className="tile">
       <div className="tile-label">
@@ -64,8 +65,11 @@ export function Tile(props: { label: string; value: number | null | undefined; s
           props.label
         )}
       </div>
-      <div className="tile-value">
-        <Num v={props.value} />
+      <div className="tile-main">
+        <div className="tile-value">
+          <Num v={props.value} />
+        </div>
+        {props.trend != null && <div className="tile-trend">{props.trend}</div>}
       </div>
       {props.sub != null && <div className="tile-sub">{props.sub}</div>}
     </div>

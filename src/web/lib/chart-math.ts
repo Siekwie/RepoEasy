@@ -206,7 +206,7 @@ export function xTickPositions(allT: number[], layout: Pick<ChartLayout, 'single
   const { single, tMin, tMax, span, pw } = layout;
   if (single) return [{ t: allT[0] as number, anchor: 'middle' }];
   const spanDays = span / DAY;
-  const n = Math.max(2, Math.min(7, Math.floor(pw / 96), Math.floor(spanDays) + 1));
+  const n = Math.max(2, Math.min(7, Math.floor(pw / 80), Math.floor(spanDays) + 1));
   const raw: number[] = [];
   for (let i = 0; i < n; i++) raw.push(Math.round((tMin + (span * i) / (n - 1)) / DAY) * DAY);
   const kept: number[] = [];

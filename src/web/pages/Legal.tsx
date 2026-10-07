@@ -35,7 +35,7 @@ function LegalPage({ title, children }: { title: string; children: (op: Operator
   const { info, me } = useApp();
   if (!info.operator) return <Navigate to="/" replace />;
   return (
-    <div className="public">
+    <div className="public public-narrow">
       <header className="public-top">
         <Link to="/" className="brand" aria-label="RepoEasy home">
           <Logo />

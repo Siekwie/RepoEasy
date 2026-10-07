@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { area, curveMonotoneX, line as lineShape } from 'd3-shape';
 import type { AppInfo, PlanLimits } from '../../shared/api.ts';
 import { useApp } from '../context.tsx';
 import { api } from '../lib/api.ts';
@@ -34,7 +35,9 @@ function HeroChart() {
   const data = useMemo(() => illustration(78), []);
   const x = (i: number) => (i / (data.length - 1)) * W;
   const y = (v: number) => base - v * (base - top - 16);
-  const line = data.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
+  const points = data.map((v, i) => [x(i), y(v)] as [number, number]);
+  const line = lineShape().curve(curveMonotoneX)(points) ?? '';
+  const fill = area().y0(base).curve(curveMonotoneX)(points) ?? '';
   // the last 14 of the 78 days
   const wx = x(data.length - 14);
   return (
@@ -61,7 +64,13 @@ function HeroChart() {
         {[0.25, 0.5, 0.75].map((f) => (
           <line key={f} className="grid" x1={0} x2={W} y1={base - f * (base - top)} y2={base - f * (base - top)} />
         ))}
-        <path d={`${line}L${W},${base}L0,${base}Z`} className="hero-area" />
+        <defs>
+          <linearGradient id="hero-wash" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0" className="area-from" />
+            <stop offset="1" className="area-to" />
+          </linearGradient>
+        </defs>
+        <path d={fill} className="hero-area" />
         <rect x={wx} y={top} width={W - wx} height={base - top} className="hero-window" />
         <line x1={wx} x2={wx} y1={top} y2={base} className="hero-window-edge" />
         <path d={line} pathLength={1} className="hero-line" />

@@ -48,6 +48,20 @@ export function buildHeatmap(days: HeatDay[]): HeatModel | null {
   return { cells, weeks, months, total, best };
 }
 
+/** Smallest and largest distance between two cells (cell plus gap), in px. */
+export const HEAT_STEP_MIN = 14;
+export const HEAT_STEP_MAX = 22;
+
+/**
+ * Cell pitch that makes the calendar as wide as the room it has: whole pixels so cells stay crisp,
+ * never below the size a finger or an eye can still pick out (the calendar scrolls sideways then),
+ * and never so large that a year of days turns into a wall of blocks.
+ */
+export function heatStep(available: number, weeks: number): number {
+  if (weeks <= 0 || available <= 0) return HEAT_STEP_MIN;
+  return Math.max(HEAT_STEP_MIN, Math.min(HEAT_STEP_MAX, Math.floor(available / weeks)));
+}
+
 /** Roving-tabindex target after an arrow key: a week per left/right, a day per up/down. -1 for keys that don't move. */
 export function moveHeatFocus(index: number, key: string, count: number): number {
   const last = count - 1;

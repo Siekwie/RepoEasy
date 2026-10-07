@@ -5,7 +5,7 @@ import { api } from '../lib/api.ts';
 import { UNIQUES_HINT, fmtDay, rangeLong } from '../lib/format.ts';
 import { useFetch, useInterval, useRangeParam, useTitle } from '../lib/hooks.ts';
 import { trafficSeries } from '../lib/series.ts';
-import { BarList, Chart, CommitHeatmap, LangBar } from '../components/charts.tsx';
+import { BarList, Chart, CommitHeatmap, LangBar, Sparkline } from '../components/charts.tsx';
 import { EventList } from '../components/feeds.tsx';
 import { RangeSelect } from '../components/RangeSelect.tsx';
 import { Card, Empty, ErrorBox, Fetched, FirstSync, PageHead, PctDelta, Seg, SignedDelta, Skeleton, Tile } from '../components/ui.tsx';
@@ -27,6 +27,12 @@ export function Overview() {
     () => (data ? [{ key: 'stars', label: 'Total stars', color: 'var(--s7)', type: 'line' as const, data: data.starSeries.map((p) => ({ day: p.day, v: p.stars })) }] : []),
     [data],
   );
+
+  // one small trend per tile, in the colour the same metric has in the chart below
+  const trend = (key: 'views' | 'uniques' | 'clones' | 'cloneUniques', label: string, color: string) =>
+    data && data.traffic.points.length > 2 ? (
+      <Sparkline data={data.traffic.points.map((p) => p[key])} label={`${label} per day, ${rangeLong(range)}`} color={color} width={92} height={32} fromZero />
+    ) : undefined;
 
   const sub = data ? `${data.repoCount} repositories · ${data.trackedCount} tracked · ${data.followedCount} followed` : 'Across all your repositories';
 
@@ -86,13 +92,30 @@ export function Overview() {
               <p className="muted">{data.traffic.previous ? 'Change compares with the period just before.' : 'No earlier period to compare with.'}</p>
             </div>
             <div className="kpis">
-              <Tile label="Views" value={data.traffic.totals.views} sub={<PctDelta cur={data.traffic.totals.views} prev={data.traffic.previous?.views} />} />
-              <Tile label="Unique visitors" value={data.traffic.totals.uniques} hint={UNIQUES_HINT} sub={<PctDelta cur={data.traffic.totals.uniques} prev={data.traffic.previous?.uniques} />} />
-              <Tile label="Clones" value={data.traffic.totals.clones} sub={<PctDelta cur={data.traffic.totals.clones} prev={data.traffic.previous?.clones} />} />
+              <Tile
+                label="Views"
+                value={data.traffic.totals.views}
+                trend={trend('views', 'Views', 'var(--s1)')}
+                sub={<PctDelta cur={data.traffic.totals.views} prev={data.traffic.previous?.views} />}
+              />
+              <Tile
+                label="Unique visitors"
+                value={data.traffic.totals.uniques}
+                hint={UNIQUES_HINT}
+                trend={trend('uniques', 'Unique visitors', 'var(--s2)')}
+                sub={<PctDelta cur={data.traffic.totals.uniques} prev={data.traffic.previous?.uniques} />}
+              />
+              <Tile
+                label="Clones"
+                value={data.traffic.totals.clones}
+                trend={trend('clones', 'Clones', 'var(--s3)')}
+                sub={<PctDelta cur={data.traffic.totals.clones} prev={data.traffic.previous?.clones} />}
+              />
               <Tile
                 label="Unique cloners"
                 value={data.traffic.totals.cloneUniques}
                 hint={UNIQUES_HINT}
+                trend={trend('cloneUniques', 'Unique cloners', 'var(--s2)')}
                 sub={<PctDelta cur={data.traffic.totals.cloneUniques} prev={data.traffic.previous?.cloneUniques} />}
               />
             </div>
@@ -116,6 +139,7 @@ export function Overview() {
           >
             <Chart
               series={traffic}
+              height={260}
               ariaLabel={`Daily ${tab === 'views' ? 'views and unique visitors' : 'clones and unique cloners'}, ${rangeLong(range)}`}
               table
               empty="No traffic archived for this period yet."
@@ -123,7 +147,7 @@ export function Overview() {
           </Card>
 
           <Card title="Stars over time" sub="Total across your repositories">
-            <Chart series={stars} zeroBase={false} height={200} ariaLabel="Total stars across all repositories over time" table empty="Star history will appear after the first sync." />
+            <Chart series={stars} zeroBase={false} height={220} ariaLabel="Total stars across all repositories over time" table empty="Star history will appear after the first sync." />
           </Card>
 
           <div className="grid-2">

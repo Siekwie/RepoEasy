@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildHeatmap, moveHeatFocus, type HeatDay } from '../../src/web/lib/heatmap.ts';
+import { HEAT_STEP_MAX, HEAT_STEP_MIN, buildHeatmap, heatStep, moveHeatFocus, type HeatDay } from '../../src/web/lib/heatmap.ts';
 
 /** n consecutive days from `start` (UTC), with commit counts from `counts` (cycled). */
 function days(start: string, n: number, counts: number[]): HeatDay[] {
@@ -83,5 +83,30 @@ describe('moveHeatFocus (arrow keys on the grid)', () => {
   it('returns -1 for keys it does not handle, so Tab and typing still work', () => {
     expect(moveHeatFocus(10, 'Tab', N)).toBe(-1);
     expect(moveHeatFocus(10, 'a', N)).toBe(-1);
+  });
+});
+
+describe('heatStep (cell pitch that fills the card)', () => {
+  it('divides the room between the weeks, in whole pixels', () => {
+    expect(heatStep(53 * 18, 53)).toBe(18);
+    expect(heatStep(53 * 18 + 40, 53)).toBe(18);
+  });
+
+  it('never makes the year wider than the room it was given', () => {
+    for (const width of [760, 901, 1040, 1163]) expect(heatStep(width, 53) * 53).toBeLessThanOrEqual(width);
+  });
+
+  it('stops shrinking at the smallest readable cell, where the calendar scrolls instead', () => {
+    expect(heatStep(300, 53)).toBe(HEAT_STEP_MIN);
+  });
+
+  it('stops growing on a very wide card', () => {
+    expect(heatStep(4000, 53)).toBe(HEAT_STEP_MAX);
+  });
+
+  it('copes with nothing to measure yet', () => {
+    expect(heatStep(0, 53)).toBe(HEAT_STEP_MIN);
+    expect(heatStep(-34, 53)).toBe(HEAT_STEP_MIN);
+    expect(heatStep(800, 0)).toBe(HEAT_STEP_MIN);
   });
 });

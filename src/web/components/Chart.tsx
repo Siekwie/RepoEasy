@@ -3,6 +3,16 @@ import { useSize } from '../lib/hooks.ts';
 import { exact, fmtDay } from '../lib/format.ts';
 import { buildModel, makeLayout, prepareSeries, valueAt, type ChartSeries } from '../lib/chart-math.ts';
 import { ChartPlot, ChartTable, ChartTooltip } from './ChartParts.tsx';
+import { Icon } from './Icon.tsx';
+
+/** A faint flat line with a dot: "this is where a chart will be". */
+function EmptyMark() {
+  return (
+    <svg width="72" height="28" viewBox="0 0 72 28" aria-hidden="true" className="chart-empty-mark">
+      <path d="M2 22C14 22 16 10 28 12s12 10 22 6 12-12 20-12" />
+    </svg>
+  );
+}
 
 export function Chart(props: {
   series: ChartSeries[];
@@ -25,7 +35,14 @@ export function Chart(props: {
   const prepared = useMemo(() => prepareSeries(props.series), [props.series]);
   const model = useMemo(() => buildModel(prepared, scale, zeroBase), [prepared, scale, zeroBase]);
 
-  if (!model) return <div className="chart-empty">{props.empty ?? 'No data for this period yet.'}</div>;
+  if (!model) {
+    return (
+      <div className="chart-empty" style={{ minHeight: height }}>
+        <EmptyMark />
+        <p>{props.empty ?? 'No data for this period yet.'}</p>
+      </div>
+    );
+  }
 
   const { allT } = model;
   const layout = makeLayout(model, width, height, scale);
@@ -59,7 +76,7 @@ export function Chart(props: {
         <ul className="legend" aria-label="Legend">
           {prepared.map((s) => (
             <li key={s.key}>
-              <span className="legend-key" style={{ background: s.color }} aria-hidden="true" />
+              <span className={`legend-key legend-${s.type}`} style={{ background: s.color }} aria-hidden="true" />
               {s.label}
             </li>
           ))}
@@ -110,7 +127,8 @@ export function Chart(props: {
             )}
           </span>
           {props.table && (
-            <button type="button" className="btn btn-sm btn-quiet" aria-expanded={showTable} onClick={() => setShowTable((v) => !v)}>
+            <button type="button" className="chart-toggle" aria-expanded={showTable} onClick={() => setShowTable((v) => !v)}>
+              <Icon name="table" size={13} />
               {showTable ? 'Hide table' : 'Show as table'}
             </button>
           )}

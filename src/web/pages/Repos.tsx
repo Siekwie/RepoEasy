@@ -169,7 +169,7 @@ export function Repos() {
         <>
           <div className="toolbar">
             <label className="search">
-              <Icon name="repos" size={15} />
+              <Icon name="search" size={15} />
               <span className="sr-only">Search repositories</span>
               <input type="search" placeholder="Search name, language, tag" value={q} onChange={(e) => setQ(e.target.value)} />
             </label>
@@ -281,7 +281,7 @@ export function Repos() {
                         {r.pushedAt ? relative(r.pushedAt) : '–'}
                       </td>
                       <td>
-                        <Sparkline width={64} height={22} data={r.viewsSpark} label={r.canPush ? `Daily views over the last 30 days, ${r.viewsSpark.reduce((a, v) => a + v, 0).toLocaleString()} total` : 'No traffic access'} />
+                        <Sparkline width={64} height={22} fromZero data={r.viewsSpark} label={r.canPush ? `Daily views over the last 30 days, ${r.viewsSpark.reduce((a, v) => a + v, 0).toLocaleString()} total` : 'No traffic access'} />
                       </td>
                       <td>
                         <HealthPill health={r.health} />

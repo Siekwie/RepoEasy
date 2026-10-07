@@ -226,7 +226,7 @@ npm run lint
 Setting `DEMO=1` and `SYNC_DISABLED=1` in `.env` gives a server with sample data and no GitHub access.
 
 - `src/server` – Hono app, GitHub client, sync engine, scheduler, SQLite schema and queries
-- `src/web` – React single-page app with hand-drawn SVG charts, no UI framework
+- `src/web` – React single-page app, no UI framework; the charts are its own SVG, with d3-shape for the curve geometry
 - `src/shared/api.ts` – the API contract both sides compile against
 - `test` – the sync engine and HTTP API against an in-memory fake GitHub
 

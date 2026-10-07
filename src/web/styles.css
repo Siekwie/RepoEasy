@@ -27,7 +27,7 @@
 
   /* layout: one column width, one side gutter and one gap, shared by the bar on top and the page under it */
   --content-max: 1320px;
-  --site-max: 1120px;
+  --site-max: 1160px;
   --gutter: clamp(16px, 2.4vw, 32px);
   --gap: 16px;
   --section-gap: 24px;
@@ -751,8 +751,8 @@ input[aria-invalid='true'] {
   font-weight: 700;
   color: var(--ink-2);
 }
-.plan-pro,
-.plan-selfhost {
+.plan-badge.plan-pro,
+.plan-badge.plan-selfhost {
   border-color: var(--brand);
   color: var(--brand);
   background: var(--brand-soft);
@@ -923,6 +923,12 @@ input[aria-invalid='true'] {
 }
 .grid-2 > .card {
   margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* neighbours differ in header height (a subtitle, a legend): pin the plots to the bottom so their axes line up */
+.grid-2 > .card > .chart-block {
+  margin-top: auto;
 }
 .grid-2 > .span-2 {
   grid-column: 1 / -1;
@@ -1031,6 +1037,7 @@ input[aria-invalid='true'] {
 
 /* ===== KPI tiles: ruled cells, not cards ===== */
 .kpi-group {
+  container-type: inline-size;
   margin-bottom: var(--section-gap);
 }
 .kpi-head {
@@ -1064,9 +1071,38 @@ input[aria-invalid='true'] {
   margin-bottom: var(--gap);
 }
 .tile {
+  --tile-fs: clamp(28px, 1.4vw + 16px, 38px);
   box-shadow: 1px 0 0 var(--line), 0 1px 0 var(--line);
   padding: 16px 20px 16px;
   min-width: 0;
+}
+/* The trend is an extra: when it no longer fits beside the number it wraps onto a second line,
+   and that line is cut off by the fixed height, so it disappears instead of crowding the value. */
+.tile-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  align-content: flex-start;
+  justify-content: space-between;
+  column-gap: 12px;
+  height: calc(var(--tile-fs) * 1.15 + 6px);
+  overflow: hidden;
+}
+.tile-trend {
+  flex: none;
+  padding-bottom: 9px;
+}
+/* Trends show in a whole row of tiles or in none of it: hidden while the tiles are too narrow,
+   as two columns on a phone and again as four on a small laptop. */
+@container (max-width: 509px) {
+  .tile-trend {
+    display: none;
+  }
+}
+@container (min-width: 720px) and (max-width: 959px) {
+  .tile-trend {
+    display: none;
+  }
 }
 .tile-label {
   display: flex;
@@ -1078,7 +1114,7 @@ input[aria-invalid='true'] {
 }
 .tile-value {
   font-family: var(--font-serif);
-  font-size: clamp(28px, 1.4vw + 16px, 38px);
+  font-size: var(--tile-fs);
   line-height: 1.15;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -1123,7 +1159,7 @@ input[aria-invalid='true'] {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 18px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
   font-size: 13px;
   color: var(--ink-2);
 }
@@ -1132,10 +1168,16 @@ input[aria-invalid='true'] {
   align-items: center;
   gap: 7px;
 }
+/* the key repeats the mark: a stroke for a line, a block for a filled area */
 .legend-key {
   width: 14px;
   height: 3px;
   border-radius: 2px;
+}
+.legend-area {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
 }
 .chart {
   position: relative;
@@ -1151,27 +1193,45 @@ input[aria-invalid='true'] {
   overflow: visible;
 }
 .chart-empty {
-  padding: 36px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 16px;
   text-align: center;
   color: var(--ink-3);
   border: 1px dashed var(--line);
   border-radius: 10px;
 }
+.chart-empty-mark {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
 .grid {
   stroke: var(--grid);
   stroke-width: 1;
+  shape-rendering: crispEdges;
 }
 .axis {
   stroke: var(--axis);
   stroke-width: 1;
+  shape-rendering: crispEdges;
 }
 .axis-label {
   fill: var(--ink-3);
   font-size: 11px;
   font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
-.area {
-  opacity: 0.14;
+/* an area is a wash that fades to nothing at the baseline, never a block of colour */
+.area-from {
+  stop-opacity: 0.24;
+}
+.area-to {
+  stop-opacity: 0.01;
 }
 .line {
   fill: none;
@@ -1180,12 +1240,24 @@ input[aria-invalid='true'] {
   stroke-linecap: round;
 }
 .line-flag {
-  stroke-dasharray: 4 4;
-  opacity: 0.75;
+  stroke-dasharray: 3 6;
+  opacity: 0.8;
+}
+.chart-series {
+  animation: chart-reveal 0.75s cubic-bezier(0.22, 0.7, 0.2, 1);
+}
+@keyframes chart-reveal {
+  from {
+    clip-path: inset(-12px 100% -12px -12px);
+  }
+  to {
+    clip-path: inset(-12px);
+  }
 }
 .crosshair {
-  stroke: var(--ink-3);
+  stroke: var(--line-strong);
   stroke-width: 1;
+  shape-rendering: crispEdges;
 }
 .dot {
   stroke: var(--surface);
@@ -1200,8 +1272,8 @@ input[aria-invalid='true'] {
   position: absolute;
   z-index: 10;
   pointer-events: none;
-  padding: 8px 11px;
-  border-radius: 8px;
+  padding: 9px 12px;
+  border-radius: 10px;
   background: var(--surface);
   border: 1px solid var(--line-strong);
   box-shadow: var(--shadow);
@@ -1209,28 +1281,41 @@ input[aria-invalid='true'] {
   white-space: nowrap;
   color: var(--ink-2);
 }
+.tooltip-chart {
+  top: 0;
+  left: 0;
+  min-width: 148px;
+  transition: transform 70ms ease-out;
+}
 .tooltip-pin {
   transform: translate(-50%, calc(-100% - 6px));
   color: var(--ink);
   font-weight: 600;
 }
 .tooltip-date {
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
   font-size: 11.5px;
+  font-weight: 600;
   color: var(--ink-3);
-  margin-bottom: 4px;
 }
 .tooltip-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  line-height: 1.75;
+}
+.tooltip-label {
+  flex: 1;
 }
 .tooltip-row strong {
+  margin-left: 14px;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
-  min-width: 2.5ch;
-  text-align: right;
 }
 .tooltip-key {
+  flex: none;
   width: 10px;
   height: 3px;
   border-radius: 2px;
@@ -1244,8 +1329,27 @@ input[aria-invalid='true'] {
   justify-content: space-between;
   align-items: center;
   gap: 10px;
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: 12.5px;
+}
+/* pulled out by its own padding so the label, not the hover box, lines up with the edge of the card */
+.chart-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 -8px -6px auto;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chart-toggle:hover {
+  background: var(--surface-2);
+  color: var(--ink);
 }
 .flag-key {
   vertical-align: middle;
@@ -1254,11 +1358,12 @@ input[aria-invalid='true'] {
 .flag-key line {
   stroke: var(--ink-3);
   stroke-width: 2;
-  stroke-dasharray: 4 3;
+  stroke-linecap: round;
+  stroke-dasharray: 3 6;
 }
 .chart-table {
   max-height: 280px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
 .spark {
   display: block;
@@ -1269,6 +1374,10 @@ input[aria-invalid='true'] {
   stroke-width: 1.75;
   stroke-linejoin: round;
   stroke-linecap: round;
+}
+.spark-dot {
+  stroke: var(--surface);
+  stroke-width: 1.5;
 }
 .heat-scroll {
   overflow-x: auto;
@@ -1307,64 +1416,92 @@ input[aria-invalid='true'] {
   stroke: var(--focus);
   stroke-width: 2.5;
 }
+.heat-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 16px;
+  margin-top: 12px;
+  font-size: 12.5px;
+}
+.heat-foot strong {
+  color: var(--ink);
+}
 .heat-legend {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 4px;
-  margin-top: 6px;
+  margin-left: auto;
   font-size: 12px;
   color: var(--ink-3);
 }
+/* Ranked rows: each lies on a soft bar as long as its share of the largest value. */
 .barlist {
   display: flex;
   flex-direction: column;
-  gap: 11px;
+  gap: 4px;
 }
-.barlist-top {
+.barlist li {
+  position: relative;
+  isolation: isolate;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border-radius: 7px;
   font-size: 13.5px;
+}
+.barlist-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  z-index: -1;
+  min-width: 6px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bar) 15%, transparent);
+  transition: background 0.15s;
+}
+.barlist li:hover .barlist-fill {
+  background: color-mix(in srgb, var(--bar) 26%, transparent);
 }
 .barlist-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-weight: 500;
+}
+.barlist-label a {
+  color: var(--ink);
 }
 .barlist-value {
   white-space: nowrap;
   font-weight: 600;
 }
-.barlist-value .muted {
+.barlist-secondary {
   font-weight: 400;
-}
-.barlist-track {
-  height: 6px;
-  border-radius: 4px;
-  background: var(--surface-2);
-  margin-top: 4px;
-}
-.barlist-fill {
-  height: 100%;
-  border-radius: 0 4px 4px 0;
+  color: var(--ink-2);
 }
 .langbar {
   display: flex;
   gap: 2px;
-  height: 12px;
-  margin-bottom: 12px;
+  height: 10px;
+  margin-bottom: 14px;
 }
 .langbar span {
   min-width: 3px;
-  border-radius: 3px;
+  border-radius: 2px;
 }
-.langlist {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  font-size: 13px;
+.langbar span:first-child {
+  border-radius: 5px 2px 2px 5px;
+}
+.langbar span:last-child {
+  border-radius: 2px 5px 5px 2px;
+}
+.langbar span:only-child {
+  border-radius: 5px;
 }
 .lang-dot {
   display: inline-block;
@@ -1374,6 +1511,9 @@ input[aria-invalid='true'] {
   margin-right: 2px;
   vertical-align: -1px;
   border: 1px solid color-mix(in srgb, var(--ink) 15%, transparent);
+}
+.barlist-label .lang-dot {
+  margin-right: 8px;
 }
 
 /* ===== Tables ===== */
@@ -2149,11 +2289,12 @@ th.r .th-btn {
 }
 
 /* ===== Legal pages ===== */
+/* a page of prose: header, text and footer share one reading-width column in the middle */
+.public-narrow {
+  --site-max: 824px;
+}
 .legal {
   line-height: 1.6;
-}
-.legal > * {
-  max-width: 760px;
 }
 .legal h1 {
   font-family: var(--font-serif);
@@ -2199,8 +2340,8 @@ th.r .th-btn {
 }
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
-  gap: clamp(28px, 4vw, 56px);
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  gap: clamp(28px, 3.5vw, 48px);
   align-items: center;
   padding: clamp(28px, 5vw, 64px) 0 clamp(40px, 6vw, 72px);
 }
@@ -2210,6 +2351,7 @@ th.r .th-btn {
   line-height: 1.06;
   letter-spacing: -0.025em;
   font-weight: 700;
+  text-wrap: balance;
 }
 .hero-h1-second {
   display: block;
@@ -2285,8 +2427,8 @@ th.r .th-btn {
   width: 10px;
   height: 10px;
   border-radius: 3px;
-  background: color-mix(in srgb, var(--s2) 30%, transparent);
-  border-left: 2px solid var(--s2);
+  background: color-mix(in srgb, var(--s2) 28%, transparent);
+  box-shadow: inset 2px 0 0 var(--s2);
 }
 .hero-svg {
   display: block;
@@ -2303,8 +2445,13 @@ th.r .th-btn {
   color: var(--ink-3);
 }
 .hero-area {
-  fill: var(--s1);
-  opacity: 0.16;
+  fill: url(#hero-wash);
+}
+.hero-svg stop {
+  stop-color: var(--s1);
+}
+.hero-svg .area-from {
+  stop-opacity: 0.3;
 }
 .hero-line {
   fill: none;
@@ -2326,7 +2473,7 @@ th.r .th-btn {
 }
 .hero-window {
   fill: var(--s2);
-  opacity: 0.18;
+  opacity: 0.14;
 }
 .hero-window-edge {
   stroke: var(--s2);
