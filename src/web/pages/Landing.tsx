@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import type { AppInfo, PlanLimits } from '../../shared/api.ts';
 import { useApp } from '../context.tsx';
 import { api } from '../lib/api.ts';
@@ -76,7 +76,26 @@ function HeroChart() {
   );
 }
 
-/** `source`: where this visitor came from, passed along so a new account can be credited to it. */
+/**
+ * A button that starts signing in: straight to GitHub when that login is set up, otherwise down to
+ * the sign-in form on this page.
+ * `source`: where this visitor came from, passed along so a new account can be credited to it.
+ */
+function SignInLink({ info, source, className, children }: { info: AppInfo; source: string; className: string; children: ReactNode }) {
+  if (!info.auth.github) {
+    return (
+      <a className={className} href="#signin">
+        {children}
+      </a>
+    );
+  }
+  return (
+    <a className={className} rel="nofollow" href={`/auth/github${source ? `?src=${encodeURIComponent(source)}` : ''}`}>
+      {children}
+    </a>
+  );
+}
+
 function SignIn({ info, source }: { info: AppInfo; source: string }) {
   const { reloadMe } = useApp();
   const [password, setPassword] = useState('');
@@ -121,9 +140,9 @@ function SignIn({ info, source }: { info: AppInfo; source: string }) {
   return (
     <div className="signin" id="signin">
       {github && (
-        <a className="btn btn-primary btn-lg" rel="nofollow" href={`/auth/github${source ? `?src=${encodeURIComponent(source)}` : ''}`}>
+        <SignInLink info={info} source={source} className="btn btn-primary btn-lg">
           <Icon name="github" size={18} /> Sign in with GitHub
-        </a>
+        </SignInLink>
       )}
       {local && (
         <form className="signin-local" onSubmit={(e) => void signInLocal(e)}>
@@ -193,7 +212,7 @@ function limitLine(n: number | null, noun: string): string {
   return n == null ? `Unlimited ${noun}` : `${n} ${noun}`;
 }
 
-function Pricing({ info }: { info: AppInfo }) {
+function Pricing({ info, source }: { info: AppInfo; source: string }) {
   const free: PlanLimits = info.limits.free;
   const pro: PlanLimits = info.limits.pro;
   return (
@@ -213,9 +232,9 @@ function Pricing({ info }: { info: AppInfo }) {
             <li>Full lifetime history</li>
             <li>Export your data any time</li>
           </ul>
-          <a className="btn" href="#signin">
+          <SignInLink info={info} source={source} className="btn">
             Start free
-          </a>
+          </SignInLink>
         </div>
         <div className="plan plan-pro">
           <h3>Pro</h3>
@@ -231,9 +250,9 @@ function Pricing({ info }: { info: AppInfo }) {
             {pro.webhooks && <li>Webhook alerts for milestones and spikes</li>}
             {pro.sharePages && <li>Public share pages and README badges</li>}
           </ul>
-          <a className="btn btn-primary" href="#signin">
+          <SignInLink info={info} source={source} className="btn btn-primary">
             Start free, upgrade later
-          </a>
+          </SignInLink>
         </div>
       </div>
     </section>
@@ -261,9 +280,9 @@ export function Landing() {
           <span>RepoEasy</span>
         </a>
         <div className="land-top-right">
-          <a className="btn btn-sm btn-quiet" href="#signin">
+          <SignInLink info={info} source={source} className="btn btn-sm btn-quiet">
             Sign in
-          </a>
+          </SignInLink>
           <ThemeToggle />
         </div>
       </header>
@@ -294,7 +313,7 @@ export function Landing() {
           </dl>
         </section>
 
-        {info.billing.enabled && <Pricing info={info} />}
+        {info.billing.enabled && <Pricing info={info} source={source} />}
       </main>
       <footer className="land-foot">
         <span>
