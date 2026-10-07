@@ -55,90 +55,88 @@ export function Settings() {
         : 'The Free plan keeps full lifetime history for a few repositories.';
 
   return (
-    <>
+    <div className="settings">
       <PageHead title="Settings" />
-      <div className="settings">
-        <Card title="Account and plan" id="plan">
-          <div className="account">
-            <Avatar src={me.avatarUrl} name={me.login} size={48} />
-            <div>
-              <strong>{me.name || me.login}</strong>
-              <div className="muted">@{me.login}</div>
-            </div>
-            <PlanBadge plan={me.plan} />
+      <Card title="Account and plan" id="plan">
+        <div className="account">
+          <Avatar src={me.avatarUrl} name={me.login} size={48} />
+          <div>
+            <strong>{me.name || me.login}</strong>
+            <div className="muted">@{me.login}</div>
           </div>
-          <p>{planText}</p>
-          {info.auth.githubAppInstallUrl && (
-            <p>
-              <InstallRepos />
-            </p>
-          )}
-          <dl className="facts">
-            <div>
-              <dt>Tracked repositories</dt>
-              <dd>
-                <UsageMeter kind="tracked" variant="fact" />
-              </dd>
-            </div>
-            <div>
-              <dt>Followed repositories</dt>
-              <dd>
-                <UsageMeter kind="followed" variant="fact" />
-              </dd>
-            </div>
-            <div>
-              <dt>Sync</dt>
-              <dd>Every {me.limits.syncIntervalHours} hours{me.sync.lastSyncAt ? `, last ${relative(me.sync.lastSyncAt)}` : ''}</dd>
-            </div>
-            {me.billing.renewsAt && (
-              <div>
-                <dt>Renews</dt>
-                <dd>{fmtDay(me.billing.renewsAt.slice(0, 10))}</dd>
-              </div>
-            )}
-          </dl>
-          {billing && me.plan === 'free' && (
-            <div className="upgrade">
-              <div>
-                <strong>Upgrade to Pro</strong>
-                <p className="muted">
-                  Unlimited tracked repositories, {info.limits.pro.followedRepos ?? 'unlimited'} followed, sync every {info.limits.pro.syncIntervalHours} hours, API tokens, webhook
-                  alerts and public share pages.
-                </p>
-              </div>
-              <div className="btn-row">
-                <button type="button" className="btn btn-primary" onClick={() => void startCheckout('month')}>
-                  {info.billing.proMonthly}/month
-                </button>
-                <button type="button" className="btn" onClick={() => void startCheckout('year')}>
-                  {info.billing.proYearly}/year
-                </button>
-              </div>
-            </div>
-          )}
-          {billing && me.billing.hasSubscription && (
-            <button type="button" className="btn" disabled={portalBusy} onClick={() => void portal()}>
-              Manage subscription
-            </button>
-          )}
-        </Card>
-
-        <NotificationsCard />
-        <TokensCard />
-
-        <AppearanceCard />
-
-        <Card title="Your data" sub="Everything RepoEasy has archived for you stays yours.">
-          <div className="btn-row">
-            <DownloadButton path={EXPORT_JSON_PATH} fallbackName="repoeasy-export.json" className="btn">
-              <Icon name="download" size={14} /> Download full export (JSON)
-            </DownloadButton>
+          <PlanBadge plan={me.plan} />
+        </div>
+        <p>{planText}</p>
+        {info.auth.githubAppInstallUrl && (
+          <p>
+            <InstallRepos />
+          </p>
+        )}
+        <dl className="facts">
+          <div>
+            <dt>Tracked repositories</dt>
+            <dd>
+              <UsageMeter kind="tracked" variant="fact" />
+            </dd>
           </div>
-        </Card>
+          <div>
+            <dt>Followed repositories</dt>
+            <dd>
+              <UsageMeter kind="followed" variant="fact" />
+            </dd>
+          </div>
+          <div>
+            <dt>Sync</dt>
+            <dd>Every {me.limits.syncIntervalHours} hours{me.sync.lastSyncAt ? `, last ${relative(me.sync.lastSyncAt)}` : ''}</dd>
+          </div>
+          {me.billing.renewsAt && (
+            <div>
+              <dt>Renews</dt>
+              <dd>{fmtDay(me.billing.renewsAt.slice(0, 10))}</dd>
+            </div>
+          )}
+        </dl>
+        {billing && me.plan === 'free' && (
+          <div className="upgrade">
+            <div>
+              <strong>Upgrade to Pro</strong>
+              <p className="muted">
+                Unlimited tracked repositories, {info.limits.pro.followedRepos ?? 'unlimited'} followed, sync every {info.limits.pro.syncIntervalHours} hours, API tokens, webhook
+                alerts and public share pages.
+              </p>
+            </div>
+            <div className="btn-row">
+              <button type="button" className="btn btn-primary" onClick={() => void startCheckout('month')}>
+                {info.billing.proMonthly}/month
+              </button>
+              <button type="button" className="btn" onClick={() => void startCheckout('year')}>
+                {info.billing.proYearly}/year
+              </button>
+            </div>
+          </div>
+        )}
+        {billing && me.billing.hasSubscription && (
+          <button type="button" className="btn" disabled={portalBusy} onClick={() => void portal()}>
+            Manage subscription
+          </button>
+        )}
+      </Card>
 
-        <DeleteCard />
-      </div>
-    </>
+      <NotificationsCard />
+      <TokensCard />
+
+      <AppearanceCard />
+
+      <Card title="Your data" sub="Everything RepoEasy has archived for you stays yours.">
+        <div className="btn-row">
+          <DownloadButton path={EXPORT_JSON_PATH} fallbackName="repoeasy-export.json" className="btn">
+            <Icon name="download" size={14} /> Download full export (JSON)
+          </DownloadButton>
+        </div>
+      </Card>
+
+      <DeleteCard />
+    </div>
   );
 }
 

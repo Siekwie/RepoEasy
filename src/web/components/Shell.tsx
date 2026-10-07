@@ -66,7 +66,7 @@ export function Shell() {
         </Link>
         <nav className="nav" aria-label="Main">
           {(me.isAdmin ? [...NAV, ADMIN_NAV] : NAV).map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end} className={({ isActive }) => (isActive ? 'active' : '')}>
+            <NavLink key={n.to} to={n.to} end={n.end} title={n.label} className={({ isActive }) => (isActive ? 'active' : '')}>
               <Icon name={n.icon} size={18} />
               <span>{n.label}</span>
             </NavLink>

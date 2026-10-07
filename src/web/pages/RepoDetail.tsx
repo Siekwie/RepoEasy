@@ -127,21 +127,21 @@ function RepoDetail({ id }: { id: number }) {
       {canTraffic && <PopularCard id={id} />}
 
       <div className="grid-2 grid-top">
-        <ReleasesCard repo={d} />
         <div className="stack">
-          <Card title="Recent commits">
-            {commits.error && !commits.data ? (
-              <p className="muted pad">Commits aren't available for this repository yet.</p>
-            ) : (
-              <Fetched f={commits} height={140}>
-                {(list) => <CommitList commits={list} showRepo={false} />}
-              </Fetched>
-            )}
-          </Card>
+          <ReleasesCard repo={d} />
           <Card title="Languages">
             <LangBar languages={d.languages} />
           </Card>
         </div>
+        <Card title="Recent commits">
+          {commits.error && !commits.data ? (
+            <p className="muted pad">Commits aren't available for this repository yet.</p>
+          ) : (
+            <Fetched f={commits} height={140}>
+              {(list) => <CommitList commits={list} showRepo={false} />}
+            </Fetched>
+          )}
+        </Card>
       </div>
 
       <div className="grid-2 grid-top">

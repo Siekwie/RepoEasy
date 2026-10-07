@@ -28,50 +28,50 @@ function illustration(n: number): number[] {
 
 function HeroChart() {
   const W = 600;
-  const H = 360;
-  const padL = 14;
-  const padR = 14;
-  const top = 64;
-  const base = H - 34;
+  const H = 250;
+  const top = 10;
+  const base = H - 1;
   const data = useMemo(() => illustration(78), []);
-  const x = (i: number) => padL + (i / (data.length - 1)) * (W - padL - padR);
-  const y = (v: number) => base - v * (base - top - 20);
+  const x = (i: number) => (i / (data.length - 1)) * W;
+  const y = (v: number) => base - v * (base - top - 16);
   const line = data.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('');
-  const windowW = 26;
-  const wx = W - padR - windowW;
+  // the last 14 of the 78 days
+  const wx = x(data.length - 14);
   return (
     <figure className="hero-fig">
+      {/* labels are HTML, not SVG text, so they keep their size when the drawing scales */}
+      <div className="hero-keys" aria-hidden="true">
+        <p>
+          <strong>
+            <span className="hero-key hero-key-kept" />
+            What RepoEasy keeps
+          </strong>
+          Every day since you started tracking
+        </p>
+        <p className="hero-keys-end">
+          <strong>
+            <span className="hero-key hero-key-window" />
+            What GitHub shows
+          </strong>
+          The last 14 days
+        </p>
+      </div>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-labelledby="hero-cap" className="hero-svg">
         <title id="hero-cap">Illustration: a long traffic history of which GitHub only shows the most recent 14 days</title>
-        <line className="grid" x1={padL} x2={W - padR} y1={base} y2={base} />
         {[0.25, 0.5, 0.75].map((f) => (
-          <line key={f} className="grid" x1={padL} x2={W - padR} y1={base - f * (base - top)} y2={base - f * (base - top)} />
+          <line key={f} className="grid" x1={0} x2={W} y1={base - f * (base - top)} y2={base - f * (base - top)} />
         ))}
-        <path d={`${line}L${x(data.length - 1)},${base}L${x(0)},${base}Z`} className="hero-area" />
+        <path d={`${line}L${W},${base}L0,${base}Z`} className="hero-area" />
+        <rect x={wx} y={top} width={W - wx} height={base - top} className="hero-window" />
+        <line x1={wx} x2={wx} y1={top} y2={base} className="hero-window-edge" />
         <path d={line} pathLength={1} className="hero-line" />
-        <rect x={wx} y={top - 6} width={windowW} height={base - top + 6} className="hero-window" />
-        <line x1={wx} x2={wx} y1={top - 6} y2={base} className="hero-window-edge" />
-        <text x={padL} y={26} className="hero-label hero-label-strong">
-          What RepoEasy keeps
-        </text>
-        <text x={padL} y={44} className="hero-label">
-          Every day since you started tracking
-        </text>
-        <text x={wx - 8} y={26} textAnchor="end" className="hero-label hero-label-muted">
-          What GitHub shows
-        </text>
-        <text x={wx - 8} y={44} textAnchor="end" className="hero-label hero-label-muted">
-          The last 14 days
-        </text>
-        <path d={`M${wx - 4},${34} L${wx + windowW / 2},${top - 10}`} className="hero-leader" />
-        <text x={padL} y={H - 10} className="axis-label">
-          Day 1
-        </text>
-        <text x={W - padR} y={H - 10} textAnchor="end" className="axis-label">
-          Today
-        </text>
+        <line className="axis" x1={0} x2={W} y1={base} y2={base} />
       </svg>
-      <figcaption>Illustrative data.</figcaption>
+      <figcaption className="hero-axis">
+        <span>Day 1</span>
+        <span>Illustrative data</span>
+        <span>Today</span>
+      </figcaption>
     </figure>
   );
 }
