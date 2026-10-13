@@ -1,3 +1,11 @@
+# Global options. Request metrics per site, read by the status collector (status.wiest-lab.eu)
+# from the admin endpoint inside this container; they are not served to the outside.
+{
+	metrics {
+		per_host
+	}
+}
+
 # One file per project in sites/, e.g. sites/repoeasy.caddy. After changing one:
 #   docker exec caddy caddy reload --config /etc/caddy/Caddyfile
 import sites/*.caddy
